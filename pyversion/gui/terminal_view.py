@@ -464,15 +464,23 @@ class TerminalView(QWidget):
             print("[WARN] _write: _pty가 None이라 쓰기 불가")
             return
         try:
+            import subprocess
             if sys.platform == "win32":
                 import winpty
                 if isinstance(self._pty, winpty.PTY):
                     self._pty.write(data.decode("utf-8", errors="replace"))
                 else:
+                    # subprocess.Popen fallback
                     self._pty.stdin.write(data)
                     self._pty.stdin.flush()
             else:
-                self._pty.write(data)
+                if isinstance(self._pty, subprocess.Popen):
+                    # subprocess fallback: stdin은 bytes 모드
+                    self._pty.stdin.write(data)
+                    self._pty.stdin.flush()
+                else:
+                    # ptyprocess.PtyProcess.write()는 str을 받음
+                    self._pty.write(data.decode("utf-8", errors="replace"))
         except Exception as e:
             print(f"[ERROR] _write: 쓰기 실패 → {e}")
             traceback.print_exc()
@@ -511,6 +519,10 @@ class TerminalView(QWidget):
     # ------------------------------------------------------------------
     # 마우스 (기본 - 3단계에서 확장)
     # ------------------------------------------------------------------
+
+    def sizeHint(self):
+        from PyQt6.QtCore import QSize
+        return QSize(self._cols * self._cell_w, self._rows * self._cell_h)
 
     def mousePressEvent(self, event: QMouseEvent):
         self.setFocus()
