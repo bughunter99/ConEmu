@@ -14,6 +14,8 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
 from gui.terminal_view import TerminalView
+from gui.settings_dialog import SettingsDialog, register_settings_changed
+from config.settings import AppSettings
 print("[LOG][app.py] 모듈 로딩 완료")
 
 
@@ -26,14 +28,17 @@ class ConEmuApp(QMainWindow):
     def __init__(self):
         print("[LOG][ConEmuApp.__init__] 앱 창 생성 시작")
         super().__init__()
-        self.setWindowTitle("ConEmu-Py")
-        self.resize(900, 600)
+        self._settings = AppSettings.instance()
         self._tabs: list[TerminalView] = []
-        print("[LOG][ConEmuApp.__init__] 창 크기=900×600, _tabs=[]")
+        print("[LOG][ConEmuApp.__init__] AppSettings 로드 완료")
 
         self._init_ui()
         self._init_menu()
         self._init_shortcuts()
+        self._apply_settings()
+
+        # 설정 변경 시 콜백 등록
+        register_settings_changed(self._apply_settings)
 
         # 시작 시 탭 하나 자동 생성
         print("[LOG][ConEmuApp.__init__] 첫 번째 탭 자동 생성 시작")
@@ -90,6 +95,13 @@ class ConEmuApp(QMainWindow):
         about_action = QAction("정보(&A)", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+
+        # 설정 메뉴
+        edit_menu = menubar.addMenu("편집(&E)")
+        settings_action = QAction("설정(&S)…", self)
+        settings_action.triggered.connect(self.open_settings)
+        edit_menu.addAction(settings_action)
+
         print("[LOG][_init_menu] 완료")
 
     def _init_shortcuts(self):
@@ -101,12 +113,47 @@ class ConEmuApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.new_tab)
         # Ctrl+W: 탭 닫기
         QShortcut(QKeySequence("Ctrl+W"), self).activated.connect(self._close_current_tab)
+        # Ctrl+,: 설정
+        QShortcut(QKeySequence("Ctrl+,"), self).activated.connect(self.open_settings)
         # Alt+1~9: 탭 전환
         for i in range(1, 10):
             QShortcut(QKeySequence(f"Alt+{i}"), self).activated.connect(
                 lambda idx=i - 1: self._switch_tab(idx)
             )
-        print("[LOG][_init_shortcuts] 완료 — Ctrl+T, Ctrl+W, Alt+1~9 등록됨")
+        print("[LOG][_init_shortcuts] 완료 — Ctrl+T, Ctrl+W, Ctrl+,, Alt+1~9 등록됨")
+
+    # ------------------------------------------------------------------
+    # 설정 적용 / 설정 다이얼로그
+    # ------------------------------------------------------------------
+
+    def _apply_settings(self):
+        """AppSettings 값을 창 전체에 반영 (설정 변경 콜백)"""
+        s = self._settings
+        self.setWindowTitle(s.window_title)
+        self.resize(s.window_width, s.window_height)
+        if s.window_x >= 0 and s.window_y >= 0:
+            self.move(s.window_x, s.window_y)
+        if s.window_maximized:
+            self.showMaximized()
+        # 탭 위치 적용
+        from PyQt6.QtWidgets import QTabWidget
+        pos_map = {
+            "top":    QTabWidget.TabPosition.North,
+            "bottom": QTabWidget.TabPosition.South,
+        }
+        self.tab_widget.setTabPosition(pos_map.get(s.tab_position, QTabWidget.TabPosition.North))
+        # 각 탭의 TerminalView에 폰트/색상 갱신 요청
+        for view in self._tabs:
+            view.apply_settings(s)
+        print(f"[LOG][_apply_settings] 완료 — title={s.window_title!r}, "
+              f"font={s.font_family}/{s.font_size}, tab_pos={s.tab_position}")
+
+    def open_settings(self):
+        """설정 다이얼로그 열기 (Ctrl+, 또는 메뉴 → 편집 → 설정)"""
+        print("[LOG][open_settings] 설정 다이얼로그 열기")
+        dlg = SettingsDialog(self)
+        dlg.exec()
+        # SettingsDialog 내부에서 apply 시 _notify_settings_changed → _apply_settings 호출됨
 
     # ------------------------------------------------------------------
     # 탭 관리 (CVConGroup 대응)
@@ -187,6 +234,15 @@ class ConEmuApp(QMainWindow):
 
     def closeEvent(self, event):
         print(f"[LOG][closeEvent] 앱 종료 요청 — 탭 수={len(self._tabs)}")
+        # 창 크기/위치 저장
+        s = self._settings
+        s.window_width = self.width()
+        s.window_height = self.height()
+        s.window_x = self.x()
+        s.window_y = self.y()
+        s.window_maximized = self.isMaximized()
+        if s.save_on_exit:
+            s.save()
         for view in list(self._tabs):
             print(f"[LOG][closeEvent] view.stop() 호출: {view!r}")
             view.stop()

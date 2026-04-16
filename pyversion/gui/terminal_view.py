@@ -135,7 +135,34 @@ class TerminalView(QWidget):
         print(f"[LOG][_pick_font] 시스템 기본 고정폭 폰트: '{font.family()}' {font.pointSize()}pt")
         return font
 
-    def __init__(self, parent=None):
+    def _build_font_from_settings(self) -> "QFont":
+        """AppSettings의 폰트 설정으로 QFont 생성. 설정 없으면 시스템 자동 탐색."""
+        s = self._settings
+        if s is not None:
+            family = s.font_family
+            size   = s.font_size
+            bold   = s.font_bold
+            if family:
+                font = QFont(family, size)
+                font.setBold(bold)
+                font.setFixedPitch(True)
+                print(f"[LOG][_build_font_from_settings] 설정 폰트 사용: '{family}' {size}pt bold={bold}")
+                return font
+        return self._pick_font(12)
+
+    def apply_settings(self, settings=None) -> None:
+        """AppSettings 변경 시 폰트·색상 등을 재적용 (설정 다이얼로그 Apply 후 호출)"""
+        if settings is not None:
+            self._settings = settings
+        self._font = self._build_font_from_settings()
+        fm = QFontMetrics(self._font)
+        self._cell_w = fm.horizontalAdvance("M")
+        self._cell_h = fm.height()
+        print(f"[LOG][apply_settings] 폰트 갱신: '{self._font.family()}' "
+              f"{self._font.pointSize()}pt, 셀={self._cell_w}×{self._cell_h}px")
+        self.update()   # 다시 그리기
+
+
         print(f"[LOG][__init__] TerminalView 생성 시작 — parent={parent!r}")
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -143,8 +170,15 @@ class TerminalView(QWidget):
         self.setCursor(Qt.CursorShape.IBeamCursor)
         print("[LOG][__init__] 위젯 속성 설정 완료 (FocusPolicy=StrongFocus, WA_OpaquePaintEvent, IBeamCursor)")
 
-        # 폰트 (CFontMgr 대응) — 시스템에 따라 적절한 폰트 선택
-        self._font = self._pick_font(11)
+        # 설정 로드 (AppSettings 싱글턴)
+        try:
+            from config.settings import AppSettings
+            self._settings = AppSettings.instance()
+        except Exception:
+            self._settings = None
+
+        # 폰트 초기화 (설정 우선, 없으면 시스템 탐색)
+        self._font = self._build_font_from_settings()
         print(f"[LOG][__init__] 폰트 확정: '{self._font.family()}' {self._font.pointSize()}pt")
         fm = QFontMetrics(self._font)
         self._cell_w = fm.horizontalAdvance("M")
@@ -409,11 +443,16 @@ class TerminalView(QWidget):
         painter = QPainter(self)
         painter.setFont(self._font)
 
+        # 설정에서 기본 색상 가져오기
+        s = self._settings
+        cfg_fg = s.default_fg if s else DEFAULT_FG
+        cfg_bg = s.default_bg if s else DEFAULT_BG
+
         # 전체 배경 채우기
-        painter.fillRect(self.rect(), QColor(DEFAULT_BG))
+        painter.fillRect(self.rect(), QColor(cfg_bg))
 
         if self._screen is None:
-            painter.setPen(QColor(DEFAULT_FG))
+            painter.setPen(QColor(cfg_fg))
             painter.drawText(10, 20, "pyte 라이브러리가 필요합니다: pip install pyte")
             if self._paint_count <= 3:
                 print(f"[LOG][paintEvent] #{self._paint_count}: _screen=None, 안내 문구 표시")
@@ -435,8 +474,8 @@ class TerminalView(QWidget):
             for col_idx in range(self._screen.columns):
                 char = self._screen.buffer[row_idx][col_idx]
 
-                fg = _resolve_color(char.fg, DEFAULT_FG)
-                bg = _resolve_color(char.bg, DEFAULT_BG)
+                fg = _resolve_color(char.fg, cfg_fg)
+                bg = _resolve_color(char.bg, cfg_bg)
 
                 x = col_idx * self._cell_w
                 y = row_idx * self._cell_h
@@ -459,13 +498,18 @@ class TerminalView(QWidget):
         if self._screen.cursor:
             cx = self._screen.cursor.x * self._cell_w
             cy = self._screen.cursor.y * self._cell_h
-            painter.fillRect(cx, cy, self._cell_w, self._cell_h,
-                             QColor("#ffffff"))
-            # 커서 위치의 문자도 반전 렌더링
-            char = self._screen.buffer[self._screen.cursor.y][self._screen.cursor.x]
-            if char.data and char.data != " ":
-                painter.setPen(QColor(DEFAULT_BG))
-                painter.drawText(cx, cy + fm.ascent(), char.data)
+            cursor_style = s.cursor_style if s else "block"
+            if cursor_style == "block":
+                painter.fillRect(cx, cy, self._cell_w, self._cell_h, QColor("#ffffff"))
+                char = self._screen.buffer[self._screen.cursor.y][self._screen.cursor.x]
+                if char.data and char.data != " ":
+                    painter.setPen(QColor(cfg_bg))
+                    painter.drawText(cx, cy + fm.ascent(), char.data)
+            elif cursor_style == "underline":
+                painter.fillRect(cx, cy + self._cell_h - 2, self._cell_w, 2,
+                                 QColor("#ffffff"))
+            else:  # bar
+                painter.fillRect(cx, cy, 2, self._cell_h, QColor("#ffffff"))
 
     # ------------------------------------------------------------------
     # 키보드 입력 처리 (CRealConsole::ProcessKeyDown() 대응)
