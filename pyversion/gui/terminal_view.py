@@ -162,7 +162,7 @@ class TerminalView(QWidget):
               f"{self._font.pointSize()}pt, 셀={self._cell_w}×{self._cell_h}px")
         self.update()   # 다시 그리기
 
-
+    def __init__(self, parent=None):
         print(f"[LOG][__init__] TerminalView 생성 시작 — parent={parent!r}")
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
