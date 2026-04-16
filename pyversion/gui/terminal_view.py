@@ -10,6 +10,7 @@ CVirtualConsole + CVConChild 대응 (1단계 프로토타입)
 import sys
 import os
 import threading
+import traceback
 
 from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QRect
@@ -20,8 +21,10 @@ from PyQt6.QtGui import (
 
 try:
     import pyte
+    print("[DEBUG] pyte 임포트 성공:", pyte.__version__)
 except ImportError:
     pyte = None  # type: ignore
+    print("[ERROR] pyte 임포트 실패 - 'pip install pyte' 를 실행하세요")
 
 # ANSI 기본 16색 팔레트 (ConEmu 기본 팔레트 대응)
 ANSI_COLORS = [
@@ -85,18 +88,47 @@ class TerminalView(QWidget):
     title_changed = pyqtSignal(str)
     process_exited = pyqtSignal()
 
+    # 우선순위 순으로 시도할 폰트 목록
+    _FONT_CANDIDATES = [
+        "Consolas",          # Windows
+        "Cascadia Code",     # Windows Terminal 기본
+        "DejaVu Sans Mono",  # Linux 광범위 지원
+        "Liberation Mono",   # Linux RHEL/Fedora 계열
+        "Courier New",       # 모든 OS
+        "Monospace",         # Linux 제네릭 별칭
+        "Courier",           # 최후 fallback
+    ]
+
+    @staticmethod
+    def _pick_font(size: int) -> "QFont":
+        """시스템에서 사용 가능한 모노스페이스 폰트를 찾아 반환"""
+        from PyQt6.QtGui import QFontDatabase
+        available = set(QFontDatabase.families())
+        for name in TerminalView._FONT_CANDIDATES:
+            if name in available:
+                font = QFont(name, size)
+                font.setFixedPitch(True)
+                print(f"[DEBUG] _pick_font: '{name}' 사용")
+                return font
+        # 하나도 없으면 Qt 기본 고정폭 폰트
+        print("[WARN] _pick_font: 후보 폰트 없음, QFontDatabase.systemFont(FixedFont) 사용")
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font.setPointSize(size)
+        return font
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.setCursor(Qt.CursorShape.IBeamCursor)
 
-        # 폰트 (CFontMgr 대응)
-        self._font = QFont("Consolas", 11)
-        self._font.setFixedPitch(True)
+        # 폰트 (CFontMgr 대응) — 시스템에 따라 적절한 폰트 선택
+        self._font = self._pick_font(11)
+        print(f"[DEBUG] __init__: 폰트 선택됨 → {self._font.family()} {self._font.pointSize()}pt")
         fm = QFontMetrics(self._font)
         self._cell_w = fm.horizontalAdvance("M")
         self._cell_h = fm.height()
+        print(f"[DEBUG] __init__: 셀 크기 → {self._cell_w}x{self._cell_h}px")
 
         # 화면 크기 (행/열)
         self._cols = 80
@@ -123,9 +155,11 @@ class TerminalView(QWidget):
 
     def _init_pyte(self):
         if pyte is None:
+            print("[ERROR] _init_pyte: pyte가 없어서 버퍼를 초기화할 수 없습니다.")
             return
         self._screen = pyte.Screen(self._cols, self._rows)
         self._stream = pyte.ByteStream(self._screen)
+        print(f"[DEBUG] _init_pyte: 화면 버퍼 생성 완료 ({self._cols}열 x {self._rows}행)")
 
     # ------------------------------------------------------------------
     # PTY 시작/중지
@@ -133,22 +167,27 @@ class TerminalView(QWidget):
 
     def start(self):
         """터미널 프로세스 시작 (CRealConsole::Start() 대응)"""
+        print(f"[DEBUG] start: 플랫폼={sys.platform}")
         if sys.platform == "win32":
             self._start_windows()
         else:
             self._start_unix()
         self._running = True
         self._repaint_timer.start()
+        print(f"[DEBUG] start: repaint 타이머 시작, _pty={self._pty}")
 
     def _start_windows(self):
         """Windows PTY (pywinpty)"""
         try:
             import winpty  # pywinpty
+            print("[DEBUG] _start_windows: pywinpty 임포트 성공")
             self._pty = winpty.PTY(self._cols, self._rows)
             shell = os.environ.get("COMSPEC", "cmd.exe")
+            print(f"[DEBUG] _start_windows: 쉘 실행 → {shell}")
             self._pty.spawn(shell)
+            print("[DEBUG] _start_windows: PTY spawn 완료")
         except ImportError:
-            # pywinpty 없으면 subprocess fallback
+            print("[WARN] _start_windows: pywinpty 없음, subprocess fallback 사용")
             import subprocess
             self._pty = subprocess.Popen(
                 ["cmd.exe"],
@@ -156,33 +195,52 @@ class TerminalView(QWidget):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
             )
+            print(f"[DEBUG] _start_windows: subprocess PID={self._pty.pid}")
+        except Exception as e:
+            print(f"[ERROR] _start_windows: PTY 시작 실패 → {e}")
+            traceback.print_exc()
+            return
         self._reader_thread = threading.Thread(
             target=self._read_loop_windows, daemon=True
         )
         self._reader_thread.start()
+        print("[DEBUG] _start_windows: 읽기 스레드 시작됨")
 
     def _start_unix(self):
         """Unix PTY (ptyprocess)"""
         try:
             import ptyprocess
+            print("[DEBUG] _start_unix: ptyprocess 임포트 성공")
             shell = os.environ.get("SHELL", "/bin/bash")
+            print(f"[DEBUG] _start_unix: 쉘 실행 → {shell}")
             self._pty = ptyprocess.PtyProcess.spawn([shell])
+            print(f"[DEBUG] _start_unix: PTY spawn 완료, PID={self._pty.pid}")
         except ImportError:
+            print("[WARN] _start_unix: ptyprocess 없음, subprocess fallback 사용")
+            print("[WARN]   → 'pip install ptyprocess' 설치를 권장합니다")
             import subprocess
             shell = os.environ.get("SHELL", "/bin/sh")
+            print(f"[DEBUG] _start_unix: subprocess로 {shell} 실행")
             self._pty = subprocess.Popen(
                 [shell],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
             )
+            print(f"[DEBUG] _start_unix: subprocess PID={self._pty.pid}")
+        except Exception as e:
+            print(f"[ERROR] _start_unix: PTY 시작 실패 → {e}")
+            traceback.print_exc()
+            return
         self._reader_thread = threading.Thread(
             target=self._read_loop_unix, daemon=True
         )
         self._reader_thread.start()
+        print("[DEBUG] _start_unix: 읽기 스레드 시작됨")
 
     def stop(self):
         """터미널 프로세스 종료"""
+        print("[DEBUG] stop: 터미널 종료 요청")
         self._running = False
         self._repaint_timer.stop()
         if self._pty is not None:
@@ -191,8 +249,9 @@ class TerminalView(QWidget):
                     self._pty.close()
                 else:
                     self._pty.terminate()
-            except Exception:
-                pass
+                print("[DEBUG] stop: PTY 종료 완료")
+            except Exception as e:
+                print(f"[WARN] stop: PTY 종료 중 오류 → {e}")
 
     # ------------------------------------------------------------------
     # PTY 읽기 루프
@@ -200,33 +259,60 @@ class TerminalView(QWidget):
 
     def _read_loop_windows(self):
         """Windows PTY 출력 읽기 루프 (ConEmuSrv 역할)"""
+        print("[DEBUG] _read_loop_windows: 읽기 루프 시작")
         import winpty
+        read_count = 0
         while self._running:
             try:
                 if isinstance(self._pty, winpty.PTY):
                     data = self._pty.read(4096)
                     if data:
+                        read_count += 1
+                        if read_count <= 5:
+                            print(f"[DEBUG] _read_loop_windows: 데이터 수신 #{read_count}, {len(data)}바이트")
                         self._feed(data.encode("utf-8", errors="replace"))
                 else:
                     # subprocess fallback
                     data = self._pty.stdout.read(4096)
                     if not data:
+                        print("[DEBUG] _read_loop_windows: subprocess stdout EOF")
                         break
+                    read_count += 1
+                    if read_count <= 5:
+                        print(f"[DEBUG] _read_loop_windows: subprocess 데이터 #{read_count}, {len(data)}바이트")
                     self._feed(data)
-            except Exception:
+            except Exception as e:
+                print(f"[ERROR] _read_loop_windows: 읽기 오류 → {e}")
+                traceback.print_exc()
                 break
+        print(f"[DEBUG] _read_loop_windows: 루프 종료 (총 {read_count}회 읽음)")
         self.process_exited.emit()
 
     def _read_loop_unix(self):
         """Unix PTY 출력 읽기 루프"""
+        import subprocess
+        is_subprocess = isinstance(self._pty, subprocess.Popen)
+        print(f"[DEBUG] _read_loop_unix: 루프 시작, subprocess모드={is_subprocess}")
+        read_count = 0
         while self._running:
             try:
-                data = self._pty.read(4096)
+                if is_subprocess:
+                    # subprocess.Popen은 stdout.read()를 사용해야 함
+                    data = self._pty.stdout.read(4096)
+                else:
+                    data = self._pty.read(4096)
                 if not data:
+                    print("[DEBUG] _read_loop_unix: EOF 수신, 루프 종료")
                     break
+                read_count += 1
+                if read_count <= 5:
+                    print(f"[DEBUG] _read_loop_unix: 데이터 수신 #{read_count}, {len(data)}바이트, 내용(앞30)={data[:30]!r}")
                 self._feed(data if isinstance(data, bytes) else data.encode())
-            except Exception:
+            except Exception as e:
+                print(f"[ERROR] _read_loop_unix: 읽기 오류 → {e}")
+                traceback.print_exc()
                 break
+        print(f"[DEBUG] _read_loop_unix: 루프 종료 (총 {read_count}회 읽음)")
         self.process_exited.emit()
 
     def _feed(self, data: bytes):
@@ -236,6 +322,8 @@ class TerminalView(QWidget):
             # 타이틀 변경 감지
             if self._screen and self._screen.title:
                 self.title_changed.emit(self._screen.title)
+        else:
+            print("[WARN] _feed: _stream이 None이라 데이터를 버립니다")
 
     # ------------------------------------------------------------------
     # 렌더링 (CVirtualConsole::Paint() 대응)
@@ -254,6 +342,7 @@ class TerminalView(QWidget):
             return
 
         fm = QFontMetrics(self._font)
+        rendered_chars = 0
 
         for row_idx in range(self._screen.lines):
             for col_idx in range(self._screen.columns):
@@ -274,6 +363,17 @@ class TerminalView(QWidget):
                 if ch and ch != " ":
                     painter.setPen(fg)
                     painter.drawText(x, y + fm.ascent(), ch)
+                    rendered_chars += 1
+
+        # 처음 몇 번만 렌더링 통계 출력
+        if not hasattr(self, "_paint_count"):
+            self._paint_count = 0
+        self._paint_count += 1
+        if self._paint_count <= 3 or rendered_chars > 0 and self._paint_count % 60 == 0:
+            print(f"[DEBUG] paintEvent #{self._paint_count}: 셀크기=({self._cell_w}x{self._cell_h}), "
+                  f"화면크기=({self._screen.columns}x{self._screen.lines}), "
+                  f"렌더된 문자={rendered_chars}개, "
+                  f"_running={self._running}")
 
         # 커서 그리기
         if self._screen.cursor:
@@ -293,11 +393,13 @@ class TerminalView(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent):
         if self._pty is None:
+            print("[WARN] keyPressEvent: _pty가 None입니다 (프로세스 없음)")
             return
 
         key = event.key()
         text = event.text()
         mods = event.modifiers()
+        print(f"[DEBUG] keyPressEvent: key={key}, text={text!r}, mods={int(mods)}, _running={self._running}")
 
         # 특수 키 변환 테이블 (VK_* → VT 시퀀스)
         VT_MAP = {
@@ -339,9 +441,13 @@ class TerminalView(QWidget):
 
         data = VT_MAP.get(key)
         if data:
+            print(f"[DEBUG] keyPressEvent: VT시퀀스 전송 {data!r}")
             self._write(data)
         elif text:
+            print(f"[DEBUG] keyPressEvent: 텍스트 전송 {text!r}")
             self._write(text.encode("utf-8"))
+        else:
+            print(f"[DEBUG] keyPressEvent: 매핑 없는 키 무시 (key={key})")
 
     def _has_selection(self) -> bool:
         # TODO: 2단계 이후 선택 영역 구현
@@ -350,6 +456,7 @@ class TerminalView(QWidget):
     def _write(self, data: bytes):
         """PTY에 데이터 쓰기"""
         if self._pty is None:
+            print("[WARN] _write: _pty가 None이라 쓰기 불가")
             return
         try:
             if sys.platform == "win32":
@@ -361,8 +468,9 @@ class TerminalView(QWidget):
                     self._pty.stdin.flush()
             else:
                 self._pty.write(data)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[ERROR] _write: 쓰기 실패 → {e}")
+            traceback.print_exc()
 
     # ------------------------------------------------------------------
     # 창 크기 변경 처리
@@ -373,6 +481,7 @@ class TerminalView(QWidget):
         w = max(1, event.size().width() // self._cell_w)
         h = max(1, event.size().height() // self._cell_h)
         if w != self._cols or h != self._rows:
+            print(f"[DEBUG] resizeEvent: 창 크기 변경 → {self._cols}x{self._rows} → {w}x{h}")
             self._cols = w
             self._rows = h
             self._resize_pty(w, h)
@@ -390,8 +499,9 @@ class TerminalView(QWidget):
                     self._pty.set_size(cols, rows)
             else:
                 self._pty.setwinsize(rows, cols)
-        except Exception:
-            pass
+            print(f"[DEBUG] _resize_pty: PTY 크기 → {cols}x{rows}")
+        except Exception as e:
+            print(f"[WARN] _resize_pty: 크기 변경 실패 → {e}")
 
     # ------------------------------------------------------------------
     # 마우스 (기본 - 3단계에서 확장)

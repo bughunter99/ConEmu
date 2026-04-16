@@ -101,6 +101,7 @@ class ConEmuApp(QMainWindow):
 
     def new_tab(self):
         """새 터미널 탭 생성 (CConEmuMain::CreateVCon() 대응)"""
+        print("[DEBUG] new_tab: 새 탭 생성 시작")
         view = TerminalView(self)
         view.title_changed.connect(self._on_tab_title_changed)
         view.process_exited.connect(self._on_process_exited)
@@ -110,6 +111,7 @@ class ConEmuApp(QMainWindow):
         self._tabs.append(view)
         view.start()
         self.status_bar.showMessage(f"탭 {idx + 1} 생성됨")
+        print(f"[DEBUG] new_tab: 탭 {idx + 1} 생성 완료, 전체 탭 수={self.tab_widget.count()}")
 
     def close_tab(self, index: int):
         """탭 닫기 (CVConGroup::CloseVCon() 대응)"""
@@ -143,6 +145,7 @@ class ConEmuApp(QMainWindow):
     def _on_process_exited(self):
         view = self.sender()
         idx = self.tab_widget.indexOf(view)
+        print(f"[DEBUG] _on_process_exited: 탭 {idx + 1}의 프로세스 종료됨")
         if idx >= 0:
             self.tab_widget.setTabText(idx, "[종료됨]")
 
