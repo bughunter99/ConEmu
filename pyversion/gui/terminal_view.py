@@ -21,7 +21,12 @@ from PyQt6.QtGui import (
 
 try:
     import pyte
-    print("[DEBUG] pyte 임포트 성공:", pyte.__version__)
+    try:
+        from importlib.metadata import version as _pkg_version
+        _pyte_ver = _pkg_version("pyte")
+    except Exception:
+        _pyte_ver = "알 수 없음"
+    print("[DEBUG] pyte 임포트 성공, 버전:", _pyte_ver)
 except ImportError:
     pyte = None  # type: ignore
     print("[ERROR] pyte 임포트 실패 - 'pip install pyte' 를 실행하세요")
