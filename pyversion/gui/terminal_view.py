@@ -475,8 +475,11 @@ class TerminalView(QWidget):
         key = event.key()
         text = event.text()
         mods = event.modifiers()
-        print(f"[LOG][keyPressEvent] key={key}({hex(int(key))}), text={text!r}, "
-              f"mods={int(mods):#010x}, _pty={self._pty!r}, _running={self._running}")
+        # PyQt6에서 Qt enum은 int() 직접 변환 불가 → .value 사용 (PyQt5 호환)
+        key_int = key.value if hasattr(key, 'value') else int(key)
+        mods_int = mods.value if hasattr(mods, 'value') else int(mods)
+        print(f"[LOG][keyPressEvent] key={key}({hex(key_int)}), text={text!r}, "
+              f"mods={mods_int:#010x}, _pty={self._pty!r}, _running={self._running}")
 
         if self._pty is None:
             print("[WARN][keyPressEvent] _pty가 None — 키 입력 무시 (프로세스 없음)")
