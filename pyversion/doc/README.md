@@ -23,21 +23,20 @@
 ## 프로젝트 한눈에 보기
 
 ```
-ConEmu-Py
-├── pyversion/              ← Python 구현 루트
-│   ├── main.py             ← 진입점 (python main.py 로 실행)
-│   ├── app.py              ← 메인 애플리케이션 창 (ConEmuApp)
-│   ├── requirements.txt    ← 의존 라이브러리 목록
-│   ├── gui/                ← GUI 위젯
-│   │   ├── terminal_view.py    ← 터미널 렌더링 위젯
-│   │   └── settings_dialog.py  ← 설정 다이얼로그
-│   ├── config/             ← 설정 관리
-│   │   └── settings.py         ← AppSettings 싱글턴
-│   ├── terminal/           ← 터미널 에뮬레이션 (확장 예정)
-│   ├── ipc/                ← 프로세스 간 통신 (확장 예정)
-│   └── tests/              ← 단위 테스트
-│       └── test_terminal_buffer.py
-└── doc/                    ← 이 문서 폴더
+pyversion/              ← Python 구현 루트 (이 폴더)
+├── main.py             ← 진입점 (python main.py 로 실행)
+├── app.py              ← 메인 애플리케이션 창 (ConEmuApp)
+├── requirements.txt    ← 의존 라이브러리 목록
+├── gui/                ← GUI 위젯
+│   ├── terminal_view.py    ← 터미널 렌더링 위젯
+│   └── settings_dialog.py  ← 설정 다이얼로그
+├── config/             ← 설정 관리
+│   └── settings.py         ← AppSettings 싱글턴
+├── terminal/           ← 터미널 에뮬레이션 (확장 예정)
+├── ipc/                ← 프로세스 간 통신 (확장 예정)
+├── tests/              ← 단위 테스트
+│   └── test_terminal_buffer.py
+└── doc/                ← 이 문서 폴더
 ```
 
 ---
@@ -45,12 +44,8 @@ ConEmu-Py
 ## 빠른 시작
 
 ```bash
-# 1. 의존성 설치
+# pyversion 디렉터리에서 실행
 cd pyversion
 pip install -r requirements.txt
-
-# 2. 실행
 python main.py
 ```
-
-자세한 내용은 [설치 가이드](02_installation.md)를 참조하세요.

@@ -2,7 +2,7 @@
 
 ## 4.1 `main.py` — 진입점
 
-**파일 위치:** `pyversion/main.py`  
+**파일 위치:** `main.py`  
 **대응 C++:** `WinMain()` 함수
 
 ### 역할
@@ -24,7 +24,7 @@ sys.exit(app.exec())               # 이벤트 루프 시작 (여기서 블로�
 
 ## 4.2 `app.py` — 메인 애플리케이션 창
 
-**파일 위치:** `pyversion/app.py`  
+**파일 위치:** `app.py`  
 **대응 C++:** `CConEmuMain` 클래스  
 **클래스:** `ConEmuApp(QMainWindow)`
 
@@ -70,7 +70,7 @@ close_tab(index) 호출
 
 ## 4.3 `gui/terminal_view.py` — 터미널 뷰 위젯
 
-**파일 위치:** `pyversion/gui/terminal_view.py`  
+**파일 위치:** `gui/terminal_view.py`  
 **대응 C++:** `CVirtualConsole` + `CVConChild` + `CRealConsole`  
 **클래스:** `TerminalView(QWidget)`
 
@@ -169,7 +169,7 @@ resizeEvent(QResizeEvent) 호출
 
 ## 4.4 `config/settings.py` — 설정 관리
 
-**파일 위치:** `pyversion/config/settings.py`  
+**파일 위치:** `config/settings.py`  
 **대응 C++:** `SettingsStorage` + `CSettings`  
 **클래스:** `AppSettings`  
 **패턴:** 싱글턴 (Singleton)
@@ -232,7 +232,7 @@ s.save()                    # config.json 저장
 
 ## 4.5 `gui/settings_dialog.py` — 설정 다이얼로그
 
-**파일 위치:** `pyversion/gui/settings_dialog.py`  
+**파일 위치:** `gui/settings_dialog.py`  
 **대응 C++:** `CSettingsDlg` + 각 `SetPg*` 페이지 클래스
 
 ### 구성
@@ -268,7 +268,7 @@ register_settings_changed(my_callback)
 
 ## 4.6 `tests/test_terminal_buffer.py` — 단위 테스트
 
-**파일 위치:** `pyversion/tests/test_terminal_buffer.py`  
+**파일 위치:** `tests/test_terminal_buffer.py`  
 **프레임워크:** pytest
 
 ### 테스트 목록

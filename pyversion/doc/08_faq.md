@@ -171,7 +171,7 @@ python main.py
 
 - [ ] Python 버전이 3.10 이상인지 확인: `python --version`
 - [ ] 의존성이 모두 설치되어 있는지 확인: `pip list | grep -E "PyQt6|pyte|ptyprocess|pywinpty"`
-- [ ] `pyversion/` 디렉터리에서 실행 중인지 확인: `cd pyversion && python main.py`
+- [ ] `pyversion/` 디렉터리에서 실행 중인지 확인: `python main.py`
 - [ ] 콘솔에 출력되는 `[ERROR]` 로그 확인
 - [ ] 설정 파일이 올바른 JSON인지 확인: `python -c "import json; json.load(open('/home/user/.conemu-py/config.json'))"`
 - [ ] 가상환경이 활성화되어 있는지 확인

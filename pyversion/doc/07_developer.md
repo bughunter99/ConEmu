@@ -4,7 +4,7 @@
 
 ```
 ConEmu/
-├── pyversion/                  ← Python 구현 루트
+├── pyversion/                  ← Python 구현 루트 (이 폴더)
 │   ├── main.py                 ← 애플리케이션 진입점
 │   ├── app.py                  ← 메인 창 (ConEmuApp)
 │   ├── requirements.txt        ← 의존 라이브러리
@@ -24,20 +24,20 @@ ConEmu/
 │   ├── ipc/                    ← 프로세스 간 통신 (확장 예정)
 │   │   └── __init__.py
 │   │
-│   └── tests/                  ← 단위 테스트
-│       ├── __init__.py
-│       └── test_terminal_buffer.py
-│
-├── doc/                        ← 문서 (이 폴더)
-│   ├── README.md
-│   ├── 01_overview.md
-│   ├── 02_installation.md
-│   ├── 03_architecture.md
-│   ├── 04_modules.md
-│   ├── 05_configuration.md
-│   ├── 06_shortcuts.md
-│   ├── 07_developer.md         ← 이 파일
-│   └── 08_faq.md
+│   ├── tests/                  ← 단위 테스트
+│   │   ├── __init__.py
+│   │   └── test_terminal_buffer.py
+│   │
+│   └── doc/                    ← 문서 (이 폴더)
+│       ├── README.md
+│       ├── 01_overview.md
+│       ├── 02_installation.md
+│       ├── 03_architecture.md
+│       ├── 04_modules.md
+│       ├── 05_configuration.md
+│       ├── 06_shortcuts.md
+│       ├── 07_developer.md     ← 이 파일
+│       └── 08_faq.md
 │
 ├── src/                        ← 원본 ConEmu C++ 소스
 └── Release/                    ← 빌드 결과물
@@ -50,23 +50,22 @@ ConEmu/
 ```bash
 # 1. 저장소 클론
 git clone https://github.com/bughunter99/ConEmu.git
-cd ConEmu
+cd ConEmu/pyversion
 
 # 2. Python 가상환경 생성
-python -m venv pyversion/.venv
+python -m venv .venv
 
 # 3. 가상환경 활성화
 # Linux/macOS
-source pyversion/.venv/bin/activate
+source .venv/bin/activate
 # Windows
-pyversion\.venv\Scripts\activate
+.venv\Scripts\activate
 
 # 4. 개발용 의존성 설치
-pip install -r pyversion/requirements.txt
+pip install -r requirements.txt
 pip install pytest
 
 # 5. 실행하여 확인
-cd pyversion
 python main.py
 ```
 
@@ -302,7 +301,7 @@ if self._screen:
 - [ptyprocess 공식 문서](https://ptyprocess.readthedocs.io/)
 - [VT100 / ANSI 이스케이프 시퀀스 표](https://vt100.net/docs/vt100-ug/chapter3.html)
 - [원본 ConEmu 소스코드](https://github.com/Maximus5/ConEmu)
-- [pyversion/class_structure.md](../pyversion/class_structure.md) — 원본 C++ 클래스 구조 명세
-- [pyversion/data_flow.md](../pyversion/data_flow.md) — 원본 ConEmu 데이터 흐름 분석
-- [pyversion/conversion_plan.md](../pyversion/conversion_plan.md) — 5단계 변환 계획
-- [pyversion/libraries.md](../pyversion/libraries.md) — C++ ↔ Python 라이브러리 매핑
+- [class_structure.md](../class_structure.md) — 원본 C++ 클래스 구조 명세
+- [data_flow.md](../data_flow.md) — 원본 ConEmu 데이터 흐름 분석
+- [conversion_plan.md](../conversion_plan.md) — 5단계 변환 계획
+- [libraries.md](../libraries.md) — C++ ↔ Python 라이브러리 매핑
