@@ -4,6 +4,8 @@ CConEmuMain 클래스 대응 (1단계 프로토타입)
 """
 
 import sys
+print(f"[LOG][app.py] 모듈 로딩 시작 — Python {sys.version}")
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QTabWidget,
     QPushButton, QMenuBar, QMenu, QStatusBar, QMessageBox
@@ -12,6 +14,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 
 from gui.terminal_view import TerminalView
+print("[LOG][app.py] 모듈 로딩 완료")
 
 
 class ConEmuApp(QMainWindow):
@@ -21,17 +24,21 @@ class ConEmuApp(QMainWindow):
     """
 
     def __init__(self):
+        print("[LOG][ConEmuApp.__init__] 앱 창 생성 시작")
         super().__init__()
         self.setWindowTitle("ConEmu-Py")
         self.resize(900, 600)
         self._tabs: list[TerminalView] = []
+        print("[LOG][ConEmuApp.__init__] 창 크기=900×600, _tabs=[]")
 
         self._init_ui()
         self._init_menu()
         self._init_shortcuts()
 
         # 시작 시 탭 하나 자동 생성
+        print("[LOG][ConEmuApp.__init__] 첫 번째 탭 자동 생성 시작")
         self.new_tab()
+        print("[LOG][ConEmuApp.__init__] 초기화 완료")
 
     # ------------------------------------------------------------------
     # UI 초기화
@@ -39,6 +46,7 @@ class ConEmuApp(QMainWindow):
 
     def _init_ui(self):
         """창 레이아웃 초기화"""
+        print("[LOG][_init_ui] 호출")
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
@@ -56,9 +64,11 @@ class ConEmuApp(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("준비")
+        print("[LOG][_init_ui] 완료 — QTabWidget, QStatusBar 생성됨")
 
     def _init_menu(self):
         """메뉴 바 초기화 (CConEmuMenu 대응)"""
+        print("[LOG][_init_menu] 호출")
         menubar = self.menuBar()
 
         file_menu = menubar.addMenu("파일(&F)")
@@ -80,9 +90,11 @@ class ConEmuApp(QMainWindow):
         about_action = QAction("정보(&A)", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+        print("[LOG][_init_menu] 완료")
 
     def _init_shortcuts(self):
         """단축키 등록 (CConEmuCtrl / GlobalHotkeys 대응)"""
+        print("[LOG][_init_shortcuts] 호출")
         from PyQt6.QtGui import QShortcut
 
         # Ctrl+T: 새 탭
@@ -94,6 +106,7 @@ class ConEmuApp(QMainWindow):
             QShortcut(QKeySequence(f"Alt+{i}"), self).activated.connect(
                 lambda idx=i - 1: self._switch_tab(idx)
             )
+        print("[LOG][_init_shortcuts] 완료 — Ctrl+T, Ctrl+W, Alt+1~9 등록됨")
 
     # ------------------------------------------------------------------
     # 탭 관리 (CVConGroup 대응)
@@ -101,36 +114,48 @@ class ConEmuApp(QMainWindow):
 
     def new_tab(self):
         """새 터미널 탭 생성 (CConEmuMain::CreateVCon() 대응)"""
-        print("[DEBUG] new_tab: 새 탭 생성 시작")
+        print("[LOG][new_tab] 호출")
         view = TerminalView(self)
         view.title_changed.connect(self._on_tab_title_changed)
         view.process_exited.connect(self._on_process_exited)
+        print(f"[LOG][new_tab] TerminalView 생성 완료: {view!r}")
 
         idx = self.tab_widget.addTab(view, "터미널")
         self.tab_widget.setCurrentIndex(idx)
         self._tabs.append(view)
+        print(f"[LOG][new_tab] 탭 추가 완료 — index={idx}, 전체 탭 수={self.tab_widget.count()}")
         view.start()
         self.status_bar.showMessage(f"탭 {idx + 1} 생성됨")
-        print(f"[DEBUG] new_tab: 탭 {idx + 1} 생성 완료, 전체 탭 수={self.tab_widget.count()}")
+        print(f"[LOG][new_tab] 완료 — 탭 {idx + 1} 활성")
 
     def close_tab(self, index: int):
         """탭 닫기 (CVConGroup::CloseVCon() 대응)"""
+        print(f"[LOG][close_tab] 호출 — index={index}, 전체 탭 수={self.tab_widget.count()}")
         if self.tab_widget.count() <= 1:
+            print("[LOG][close_tab] 마지막 탭 — 앱 종료")
             self.close()
             return
         view = self.tab_widget.widget(index)
         if view:
+            print(f"[LOG][close_tab] view.stop() 호출")
             view.stop()
             if view in self._tabs:
                 self._tabs.remove(view)
         self.tab_widget.removeTab(index)
+        print(f"[LOG][close_tab] 완료 — 남은 탭 수={self.tab_widget.count()}")
 
     def _close_current_tab(self):
-        self.close_tab(self.tab_widget.currentIndex())
+        idx = self.tab_widget.currentIndex()
+        print(f"[LOG][_close_current_tab] 현재 탭 index={idx}")
+        self.close_tab(idx)
 
     def _switch_tab(self, index: int):
+        print(f"[LOG][_switch_tab] 요청 index={index}, 전체 탭 수={self.tab_widget.count()}")
         if index < self.tab_widget.count():
             self.tab_widget.setCurrentIndex(index)
+            print(f"[LOG][_switch_tab] 탭 {index} 전환 완료")
+        else:
+            print(f"[LOG][_switch_tab] index={index} 범위 초과 — 무시")
 
     # ------------------------------------------------------------------
     # 이벤트 핸들러
@@ -139,17 +164,19 @@ class ConEmuApp(QMainWindow):
     def _on_tab_title_changed(self, title: str):
         view = self.sender()
         idx = self.tab_widget.indexOf(view)
+        print(f"[LOG][_on_tab_title_changed] 탭 {idx} 타이틀 변경: {title!r}")
         if idx >= 0:
             self.tab_widget.setTabText(idx, title[:24])
 
     def _on_process_exited(self):
         view = self.sender()
         idx = self.tab_widget.indexOf(view)
-        print(f"[DEBUG] _on_process_exited: 탭 {idx + 1}의 프로세스 종료됨")
+        print(f"[LOG][_on_process_exited] 탭 {idx}의 프로세스 종료됨")
         if idx >= 0:
             self.tab_widget.setTabText(idx, "[종료됨]")
 
     def _show_about(self):
+        print("[LOG][_show_about] 정보 대화상자 표시")
         QMessageBox.about(
             self,
             "ConEmu-Py 정보",
@@ -159,6 +186,9 @@ class ConEmuApp(QMainWindow):
         )
 
     def closeEvent(self, event):
+        print(f"[LOG][closeEvent] 앱 종료 요청 — 탭 수={len(self._tabs)}")
         for view in list(self._tabs):
+            print(f"[LOG][closeEvent] view.stop() 호출: {view!r}")
             view.stop()
         event.accept()
+        print("[LOG][closeEvent] 완료")
