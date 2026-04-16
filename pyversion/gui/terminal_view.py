@@ -325,7 +325,10 @@ class TerminalView(QWidget):
         while self._running:
             try:
                 if is_winpty:
-                    data = self._pty.read(4096)
+                    # winpty.PTY.read()의 첫 번째 파라미터는 blocking(bool)임.
+                    # read(4096) 처럼 int를 positional로 넘기면
+                    # "int object cannot be cast as bool" TypeError 발생 → keyword 사용.
+                    data = self._pty.read(blocking=False)
                     if data:
                         read_count += 1
                         if read_count <= 10 or read_count % 100 == 0:
