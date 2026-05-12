@@ -30,6 +30,28 @@ print("[LOG][app.py] 모듈 로딩 완료")
 
 _MIN_VERTICAL_TILE_WIDTH = 32
 _MIN_HORIZONTAL_TILE_HEIGHT = 24
+_ICON_CANDIDATES: dict[str, list[str]] = {
+    "new": [
+        "src/ConEmu/Far.ico",
+        "logo/logo-32.png",
+    ],
+    "close": [
+        "src/ConEmu/ConEmu15.ico",
+        "logo/logo-24.png",
+    ],
+    "settings": [
+        "src/ConEmu/ConEmu.ico",
+        "logo/logo-16.png",
+    ],
+    "cascade": [
+        "src/ConEmu/Search.ico",
+        "logo/logo-20.png",
+    ],
+    "tile": [
+        "logo/logo-40.png",
+        "logo/logo-32.png",
+    ],
+}
 
 
 class _TerminalSubWindow(QMdiSubWindow):
@@ -157,29 +179,7 @@ class ConEmuApp(QMainWindow):
 
     def _icon_for(self, key: str) -> QIcon:
         root_dir = Path(__file__).resolve().parent.parent
-        icon_candidates: dict[str, list[str]] = {
-            "new": [
-                "src/ConEmu/Far.ico",
-                "logo/logo-32.png",
-            ],
-            "close": [
-                "src/ConEmu/ConEmu15.ico",
-                "logo/logo-24.png",
-            ],
-            "settings": [
-                "src/ConEmu/ConEmu.ico",
-                "logo/logo-16.png",
-            ],
-            "cascade": [
-                "src/ConEmu/Search.ico",
-                "logo/logo-20.png",
-            ],
-            "tile": [
-                "logo/logo-40.png",
-                "logo/logo-32.png",
-            ],
-        }
-        for relative_path in icon_candidates.get(key, []):
+        for relative_path in _ICON_CANDIDATES.get(key, []):
             image_path = root_dir / relative_path
             if image_path.exists():
                 return QIcon(str(image_path))
@@ -334,6 +334,7 @@ class ConEmuApp(QMainWindow):
             return
         rect = self.mdi_area.viewport().rect()
         if rect.width() < count * _MIN_VERTICAL_TILE_WIDTH:
+            print("[LOG][_tile_vertical] 폭 부족으로 기본 바둑판 배열로 대체")
             self.mdi_area.tileSubWindows()
             return
         base_width = max(1, rect.width() // count)
@@ -352,6 +353,7 @@ class ConEmuApp(QMainWindow):
             return
         rect = self.mdi_area.viewport().rect()
         if rect.height() < count * _MIN_HORIZONTAL_TILE_HEIGHT:
+            print("[LOG][_tile_horizontal] 높이 부족으로 기본 바둑판 배열로 대체")
             self.mdi_area.tileSubWindows()
             return
         base_height = max(1, rect.height() // count)
