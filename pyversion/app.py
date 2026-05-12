@@ -462,7 +462,7 @@ class ConEmuApp(QMainWindow):
         sub_window = self._find_subwindow_by_view(view)
         print("[LOG][_on_process_exited] 창 프로세스 종료됨")
         if sub_window is not None:
-            sub_window.setWindowTitle("[종료됨]")
+            sub_window.close()
 
     def _show_about(self):
         print("[LOG][_show_about] 정보 대화상자 표시")
