@@ -239,7 +239,8 @@ class TerminalView(QWidget):
     def _split_command(command: str) -> list[str]:
         try:
             return shlex.split(command, posix=(sys.platform != "win32"))
-        except ValueError:
+        except ValueError as e:
+            print(f"[WARN][_split_command] 명령 파싱 실패: {command!r} ({e})")
             return [command]
 
     # ------------------------------------------------------------------
