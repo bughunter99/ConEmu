@@ -5,6 +5,7 @@ CConEmuMain 클래스 대응 (1단계 프로토타입)
 
 from __future__ import annotations
 
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QStatusBar,
     QToolBar,
     QMessageBox,
+    QLineEdit,
+    QPushButton,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QIcon, QPalette, QColor
@@ -257,8 +260,42 @@ class ConEmuApp(QMainWindow):
         toolbar.addAction(self._tile_action)
         toolbar.addSeparator()
         toolbar.addAction(self._settings_action)
+        toolbar.addSeparator()
+
+        # 폴더 경로 입력창
+        self._path_edit = QLineEdit()
+        self._path_edit.setPlaceholderText("폴더 경로 입력...")
+        self._path_edit.setFixedWidth(220)
+        self._path_edit.setToolTip("경로를 입력하고 Enter 또는 열기 버튼을 누르면 해당 경로에서 명령창이 열립니다.")
+        self._path_edit.returnPressed.connect(self._open_cmd_at_path)
+        toolbar.addWidget(self._path_edit)
+
+        # 열기 버튼
+        self._open_path_btn = QPushButton("열기")
+        self._open_path_btn.setToolTip("입력한 경로에서 명령창 열기")
+        self._open_path_btn.clicked.connect(self._open_cmd_at_path)
+        toolbar.addWidget(self._open_path_btn)
+
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
         print("[LOG][_init_toolbar] 완료")
+
+    def _open_cmd_at_path(self):
+        """경로 입력창의 경로에서 MDI 차일드 터미널 창 열기 (Enter 또는 열기 버튼)"""
+        path = self._path_edit.text().strip()
+        print(f"[LOG][_open_cmd_at_path] 호출 — 입력 경로={path!r}")
+        if not path:
+            self.status_bar.showMessage("경로를 입력하세요.")
+            return
+        if not os.path.isdir(path):
+            QMessageBox.warning(
+                self,
+                "경로 오류",
+                f"유효한 폴더 경로가 아닙니다:\n{path}",
+            )
+            return
+        self.new_tab(cwd=path)
+        self.status_bar.showMessage(f"명령창 열기 완료: {path}")
+        print(f"[LOG][_open_cmd_at_path] MDI 터미널 창 열기 완료: {path!r}")
 
     def _init_shortcuts(self):
         """단축키 등록 (CConEmuCtrl / GlobalHotkeys 대응)"""
@@ -348,10 +385,10 @@ class ConEmuApp(QMainWindow):
             return
         self.new_tab(startup_shell=command)
 
-    def new_tab(self, startup_shell: str | None = None):
+    def new_tab(self, startup_shell: str | None = None, cwd: str | None = None):
         """새 터미널 MDI 창 생성 (CConEmuMain::CreateVCon() 대응)"""
-        print("[LOG][new_tab] 호출")
-        view = TerminalView(self.mdi_area, startup_shell=startup_shell)
+        print(f"[LOG][new_tab] 호출 — cwd={cwd!r}")
+        view = TerminalView(self.mdi_area, startup_shell=startup_shell, cwd=cwd)
         view.title_changed.connect(self._on_tab_title_changed)
         view.process_exited.connect(self._on_process_exited)
         print(f"[LOG][new_tab] TerminalView 생성 완료: {view!r}")

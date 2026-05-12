@@ -70,6 +70,29 @@ python main.py
 
 ---
 
+## 📦 Windows exe 빌드 (PyInstaller)
+
+`main.py`와 같은 경로(`pyversion`)에서 아래 명령을 실행하세요.
+
+```bash
+cd pyversion
+
+# (권장) 가상환경 활성화 후 의존성 설치
+pip install -r requirements.txt
+pip install pyinstaller
+
+# 단일 실행 파일(.exe) 생성
+pyinstaller --noconfirm --onefile --windowed --name ConEmu-Py main.py
+```
+
+생성된 실행 파일 위치:
+
+- `pyversion/dist/ConEmu-Py.exe`
+
+필요하면 `ConEmu-Py.exe`를 `main.py`가 있는 `pyversion` 루트로 복사해서 사용할 수 있습니다.
+
+---
+
 ## ⚠️ 변환 범위 제한 사항
 
 다음 기능들은 Python 변환 범위에서 **제외**됩니다:
