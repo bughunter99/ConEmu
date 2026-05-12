@@ -6,6 +6,7 @@ CConEmuMain 클래스 대응 (1단계 프로토타입)
 from __future__ import annotations
 
 import sys
+import subprocess
 from pathlib import Path
 from typing import Callable
 
@@ -318,7 +319,9 @@ class ConEmuApp(QMainWindow):
         cmd = Path(root) / "msys2_shell.cmd"
         if not cmd.exists():
             return None
-        return f'"{cmd}" -defterm -no-start -mingw64 -here'
+        return subprocess.list2cmdline(
+            [str(cmd), "-defterm", "-no-start", "-mingw64", "-here"]
+        )
 
     def _new_msys_mingw64_tab(self):
         command = self._msys_mingw64_command()
