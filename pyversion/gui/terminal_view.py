@@ -708,8 +708,6 @@ class TerminalView(QWidget):
             Qt.Key.Key_Return:    b"\r",
             Qt.Key.Key_Enter:     b"\r",
             Qt.Key.Key_Backspace: b"\x7f",
-            # Tab → \t (완성 요청); Shift+Tab → \x1b[Z (역방향 완성, backtab VT sequence)
-            Qt.Key.Key_Tab:       b"\x1b[Z" if (mods & Qt.KeyboardModifier.ShiftModifier) else b"\t",
             Qt.Key.Key_Escape:    b"\x1b",
             Qt.Key.Key_Up:        b"\x1b[A",
             Qt.Key.Key_Down:      b"\x1b[B",
@@ -750,7 +748,11 @@ class TerminalView(QWidget):
                 self._write(b"\x1a")
                 return
 
-        data = VT_MAP.get(key)
+        # Tab → \t (완성 요청); Shift+Tab → \x1b[Z (역방향 완성, backtab VT sequence)
+        if key == Qt.Key.Key_Tab:
+            data = b"\x1b[Z" if (mods & Qt.KeyboardModifier.ShiftModifier) else b"\t"
+        else:
+            data = VT_MAP.get(key)
         if data:
             print(f"[LOG][keyPressEvent] 특수 키 → VT 시퀀스 {data!r} 전송")
             self._write(data)
@@ -934,7 +936,6 @@ class TerminalView(QWidget):
     def focusNextPrevChild(self, next_child: bool) -> bool:
         # Tab/Shift+Tab must be forwarded to the PTY shell (for tab completion),
         # not consumed by Qt for focus navigation between widgets.
-        _ = next_child
         return False
 
     def mousePressEvent(self, event: QMouseEvent):
