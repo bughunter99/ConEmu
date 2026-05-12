@@ -280,7 +280,7 @@ class ConEmuApp(QMainWindow):
         print("[LOG][_init_toolbar] 완료")
 
     def _open_cmd_at_path(self):
-        """경로 입력창의 경로에서 CMD 창 열기 (Enter 또는 열기 버튼)"""
+        """경로 입력창의 경로에서 MDI 차일드 터미널 창 열기 (Enter 또는 열기 버튼)"""
         path = self._path_edit.text().strip()
         print(f"[LOG][_open_cmd_at_path] 호출 — 입력 경로={path!r}")
         if not path:
@@ -293,30 +293,9 @@ class ConEmuApp(QMainWindow):
                 f"유효한 폴더 경로가 아닙니다:\n{path}",
             )
             return
-        try:
-            if sys.platform == "win32":
-                subprocess.Popen(
-                    ["cmd.exe"],
-                    cwd=path,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", "-a", "Terminal", path])
-            else:
-                # Linux: 사용 가능한 터미널 에뮬레이터 순서대로 시도
-                for terminal in ("x-terminal-emulator", "gnome-terminal", "xterm"):
-                    try:
-                        subprocess.Popen([terminal], cwd=path)
-                        break
-                    except FileNotFoundError:
-                        continue
-                else:
-                    raise FileNotFoundError("사용 가능한 터미널 에뮬레이터를 찾을 수 없습니다.")
-            self.status_bar.showMessage(f"명령창 열기 완료: {path}")
-            print(f"[LOG][_open_cmd_at_path] 명령창 열기 완료: {path!r}")
-        except Exception as exc:
-            QMessageBox.critical(self, "오류", f"CMD 창을 열 수 없습니다:\n{exc}")
-            print(f"[LOG][_open_cmd_at_path] 오류: {exc}")
+        self.new_tab(cwd=path)
+        self.status_bar.showMessage(f"명령창 열기 완료: {path}")
+        print(f"[LOG][_open_cmd_at_path] MDI 터미널 창 열기 완료: {path!r}")
 
     def _init_shortcuts(self):
         """단축키 등록 (CConEmuCtrl / GlobalHotkeys 대응)"""
@@ -406,10 +385,10 @@ class ConEmuApp(QMainWindow):
             return
         self.new_tab(startup_shell=command)
 
-    def new_tab(self, startup_shell: str | None = None):
+    def new_tab(self, startup_shell: str | None = None, cwd: str | None = None):
         """새 터미널 MDI 창 생성 (CConEmuMain::CreateVCon() 대응)"""
-        print("[LOG][new_tab] 호출")
-        view = TerminalView(self.mdi_area, startup_shell=startup_shell)
+        print(f"[LOG][new_tab] 호출 — cwd={cwd!r}")
+        view = TerminalView(self.mdi_area, startup_shell=startup_shell, cwd=cwd)
         view.title_changed.connect(self._on_tab_title_changed)
         view.process_exited.connect(self._on_process_exited)
         print(f"[LOG][new_tab] TerminalView 생성 완료: {view!r}")

@@ -170,7 +170,7 @@ class TerminalView(QWidget):
         self._pixmap_dirty = True  # 오프스크린 버퍼 강제 재렌더링
         self.update()   # 다시 그리기
 
-    def __init__(self, parent=None, startup_shell: str | None = None):
+    def __init__(self, parent=None, startup_shell: str | None = None, cwd: str | None = None):
         print(f"[LOG][__init__] TerminalView 생성 시작 — parent={parent!r}")
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -185,6 +185,7 @@ class TerminalView(QWidget):
         except Exception:
             self._settings = None
         self._startup_shell_override = startup_shell.strip() if startup_shell else ""
+        self._cwd: str | None = cwd
 
         # 폰트 초기화 (설정 우선, 없으면 시스템 탐색)
         self._font = self._build_font_from_settings()
@@ -308,20 +309,24 @@ class TerminalView(QWidget):
             self._pty = winpty.PTY(self._cols, self._rows)
             print(f"[LOG][_start_windows] PTY 객체 생성 — 크기=({self._cols}×{self._rows})")
             shell = self._resolve_startup_shell(os.environ.get("COMSPEC", "cmd.exe"))
-            print(f"[LOG][_start_windows] 쉘 경로: {shell}")
-            self._pty.spawn(shell)
+            print(f"[LOG][_start_windows] 쉘 경로: {shell}, cwd={self._cwd!r}")
+            spawn_kwargs: dict = {}
+            if self._cwd:
+                spawn_kwargs["cwd"] = self._cwd
+            self._pty.spawn(shell, **spawn_kwargs)
             print("[LOG][_start_windows] PTY spawn 완료")
         except ImportError as ie:
             print(f"[WARN][_start_windows] pywinpty ImportError: {ie} → subprocess fallback 사용")
             import subprocess
             shell = self._resolve_startup_shell(os.environ.get("COMSPEC", "cmd.exe"))
-            print(f"[LOG][_start_windows] subprocess 쉘: {shell}")
+            print(f"[LOG][_start_windows] subprocess 쉘: {shell}, cwd={self._cwd!r}")
             argv = self._split_command(shell)
             self._pty = subprocess.Popen(
                 argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                cwd=self._cwd or None,
             )
             print(f"[LOG][_start_windows] subprocess 시작 — PID={self._pty.pid}")
         except Exception as e:
@@ -346,8 +351,11 @@ class TerminalView(QWidget):
             except Exception:
                 print("[LOG][_start_unix] ptyprocess 버전 확인 불가")
             shell = self._resolve_startup_shell(os.environ.get("SHELL", "/bin/bash"))
-            print(f"[LOG][_start_unix] 쉘 경로: {shell}")
-            self._pty = ptyprocess.PtyProcess.spawn(self._split_command(shell))
+            print(f"[LOG][_start_unix] 쉘 경로: {shell}, cwd={self._cwd!r}")
+            spawn_kwargs: dict = {}
+            if self._cwd:
+                spawn_kwargs["cwd"] = self._cwd
+            self._pty = ptyprocess.PtyProcess.spawn(self._split_command(shell), **spawn_kwargs)
             print(f"[LOG][_start_unix] PTY spawn 완료 — PID={self._pty.pid}, "
                   f"fd={self._pty.fd}, closed={self._pty.closed}")
         except ImportError as ie:
@@ -355,13 +363,14 @@ class TerminalView(QWidget):
             print("[WARN][_start_unix] 'pip install ptyprocess' 설치를 권장합니다")
             import subprocess
             shell = self._resolve_startup_shell(os.environ.get("SHELL", "/bin/sh"))
-            print(f"[LOG][_start_unix] subprocess 쉘: {shell}")
+            print(f"[LOG][_start_unix] subprocess 쉘: {shell}, cwd={self._cwd!r}")
             argv = self._split_command(shell)
             self._pty = subprocess.Popen(
                 argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                cwd=self._cwd or None,
             )
             print(f"[LOG][_start_unix] subprocess 시작 — PID={self._pty.pid}")
         except Exception as e:
