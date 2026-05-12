@@ -300,6 +300,7 @@ class ConEmuApp(QMainWindow):
         if sub_window is None:
             windows = self._subwindow_list()
             if windows:
+                # 활성 창 정보가 없더라도 Ctrl+W 동작을 유지하기 위해 마지막 창을 닫음
                 windows[-1].close()
             return
         sub_window.close()
