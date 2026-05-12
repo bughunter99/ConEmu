@@ -15,7 +15,7 @@ import traceback
 
 print(f"[LOG][module] terminal_view 로딩 시작 — Python {sys.version}, 플랫폼={sys.platform}")
 
-from PySide6.QtWidgets import QWidget, QApplication
+from PySide6.QtWidgets import QWidget, QApplication, QScrollBar
 from PySide6.QtCore import Qt, QTimer, Signal, QRect
 from PySide6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QKeyEvent,
@@ -61,6 +61,11 @@ ANSI_COLORS = [
 
 DEFAULT_FG = "#c0c0c0"
 DEFAULT_BG = "#1e1e1e"
+
+# 스크롤바 너비 (픽셀) — 터미널 오른쪽 가장자리에 고정 배치
+_SCROLLBAR_WIDTH = 16
+# 마우스 휠 1틱(120 units)당 스크롤할 행 수 계산에 사용하는 단위당 픽셀
+_WHEEL_DELTA_PER_LINE = 40
 
 
 # pyte 색상명 → hex 매핑 (pyte는 색상을 이름 문자열로 반환)
@@ -226,6 +231,18 @@ class TerminalView(QWidget):
         self._sel_end_cell: tuple[int, int] | None = None  # 마우스 현재 셀
         self._selecting: bool = False                       # 마우스 드래그 중
 
+        # 스크롤백 상태 (0 = 라이브 화면, N = N줄 위로 스크롤됨)
+        self._scroll_offset: int = 0
+
+        # 스크롤바 (오른쪽 가장자리에 오버레이)
+        self._scrollbar = QScrollBar(Qt.Orientation.Vertical, self)
+        self._scrollbar.setMinimum(0)
+        self._scrollbar.setMaximum(0)
+        self._scrollbar.setSingleStep(1)
+        self._scrollbar.setPageStep(self._rows)
+        self._scrollbar.valueChanged.connect(self._on_scroll)
+        self._scrollbar.hide()  # 히스토리가 없을 때는 숨김
+
         print("[LOG][__init__] TerminalView 생성 완료")
 
     def _resolve_startup_shell(self, default_shell: str) -> str:
@@ -253,10 +270,10 @@ class TerminalView(QWidget):
         if pyte is None:
             print("[ERROR][_init_pyte] pyte가 없어서 버퍼를 초기화할 수 없습니다.")
             return
-        self._screen = pyte.Screen(self._cols, self._rows)
+        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=2000)
         self._stream = pyte.ByteStream(self._screen)
         print(f"[LOG][_init_pyte] 화면 버퍼 생성 완료 — "
-              f"Screen({self._screen.columns}열 × {self._screen.lines}행), "
+              f"HistoryScreen({self._screen.columns}열 × {self._screen.lines}행, history=2000), "
               f"ByteStream 연결됨")
 
     # ------------------------------------------------------------------
@@ -469,6 +486,32 @@ class TerminalView(QWidget):
         # 오프스크린 버퍼 갱신 표시 — 타이머가 다음 틱에 update() 호출
         self._dirty = True
 
+    def _update_scrollbar_range(self):
+        """히스토리 크기에 맞춰 스크롤바 범위를 갱신한다 (메인 스레드에서만 호출)."""
+        if self._screen is None or not hasattr(self._screen, 'history'):
+            return
+        history_len = len(self._screen.history.top)
+        self._scrollbar.blockSignals(True)
+        self._scrollbar.setMaximum(history_len)
+        self._scrollbar.setPageStep(max(1, self._rows))
+        # 바닥에 고정되어 있으면 계속 바닥을 유지; 아니면 현재 오프셋 보존
+        new_value = history_len - self._scroll_offset
+        self._scrollbar.setValue(max(0, new_value))
+        self._scrollbar.blockSignals(False)
+        if history_len > 0:
+            self._scrollbar.show()
+        else:
+            self._scrollbar.hide()
+
+    def _on_scroll(self, value: int):
+        """스크롤바 값이 바뀔 때 호출 — 오프셋 계산 후 화면 갱신."""
+        if self._screen is None:
+            return
+        history_len = self._scrollbar.maximum()
+        self._scroll_offset = max(0, history_len - value)
+        self._pixmap_dirty = True
+        self.update()
+
     # ------------------------------------------------------------------
     # 렌더링 (CVirtualConsole::Paint() 대응)
     # ------------------------------------------------------------------
@@ -477,6 +520,7 @@ class TerminalView(QWidget):
         """타이머 콜백 — PTY 데이터가 도착한 경우에만 화면 갱신 요청"""
         if self._dirty:
             self._dirty = False
+            self._update_scrollbar_range()
             self._pixmap_dirty = True
             self.update()
 
@@ -528,9 +572,30 @@ class TerminalView(QWidget):
         fm = QFontMetrics(self._font)
         rendered_chars = 0
 
-        for row_idx in range(self._screen.lines):
-            row_buf = self._screen.buffer[row_idx]
-            y = row_idx * self._cell_h
+        # 스크롤백: 히스토리 행 목록 (가장 오래된 것이 index 0)
+        history_list: list = []
+        if self._scroll_offset > 0 and hasattr(self._screen, 'history'):
+            history_list = list(self._screen.history.top)
+        total_hist = len(history_list)
+        # 뷰포트가 시작하는 가상(virtual) 행 인덱스
+        # virtual 0..total_hist-1 → history, virtual total_hist.. → live screen
+        viewport_start = max(0, total_hist - self._scroll_offset)
+
+        for display_row in range(self._screen.lines):
+            if self._scroll_offset > 0:
+                virtual_idx = viewport_start + display_row
+                if virtual_idx < total_hist:
+                    row_buf = history_list[virtual_idx]
+                else:
+                    live_row = virtual_idx - total_hist
+                    if 0 <= live_row < self._screen.lines:
+                        row_buf = self._screen.buffer[live_row]
+                    else:
+                        continue
+            else:
+                row_buf = self._screen.buffer[display_row]
+
+            y = display_row * self._cell_h
             baseline = y + fm.ascent()
 
             col = 0
@@ -571,6 +636,8 @@ class TerminalView(QWidget):
 
     def _paint_selection_overlay(self, painter: QPainter):
         """선택 영역을 반투명 파란색으로 덧그린다."""
+        if self._scroll_offset > 0:
+            return  # 히스토리 보기 중에는 선택 오버레이 숨김
         sel = self._selection_range()
         if sel is None:
             return
@@ -587,6 +654,8 @@ class TerminalView(QWidget):
 
     def _paint_cursor(self, painter: QPainter):
         """커서를 픽스맵 위에 덧그린다."""
+        if self._scroll_offset > 0:
+            return  # 히스토리 보기 중에는 커서 숨김
         if self._screen is None or not self._screen.cursor:
             return
         s = self._settings
@@ -619,6 +688,12 @@ class TerminalView(QWidget):
         mods_int = mods.value if hasattr(mods, 'value') else int(mods)
         print(f"[LOG][keyPressEvent] key={key}({hex(key_int)}), text={text!r}, "
               f"mods={mods_int:#010x}, _pty={self._pty!r}, _running={self._running}")
+
+        # 타이핑 시작 시 라이브 화면으로 자동 스크롤
+        if self._scroll_offset != 0:
+            self._scroll_offset = 0
+            self._update_scrollbar_range()
+            self._pixmap_dirty = True
 
         if self._pty is None:
             print("[WARN][keyPressEvent] _pty가 None — 키 입력 무시 (프로세스 없음)")
@@ -767,7 +842,15 @@ class TerminalView(QWidget):
         print(f"[LOG][resizeEvent] 호출 — 이전={old_size.width()}×{old_size.height()}px, "
               f"신규={new_size.width()}×{new_size.height()}px")
         super().resizeEvent(event)
-        w = max(1, new_size.width() // self._cell_w)
+
+        # 스크롤바를 오른쪽 가장자리에 배치
+        self._scrollbar.setGeometry(
+            new_size.width() - _SCROLLBAR_WIDTH, 0, _SCROLLBAR_WIDTH, new_size.height()
+        )
+
+        # 터미널 열/행 계산 시 스크롤바 폭을 제외
+        terminal_w = max(1, new_size.width() - _SCROLLBAR_WIDTH)
+        w = max(1, terminal_w // self._cell_w)
         h = max(1, new_size.height() // self._cell_h)
         print(f"[LOG][resizeEvent] 픽셀→셀 변환: {w}열 × {h}행 (현재: {self._cols}×{self._rows})")
         if w != self._cols or h != self._rows:
@@ -780,6 +863,10 @@ class TerminalView(QWidget):
                 print(f"[LOG][resizeEvent] pyte Screen.resize({h}, {w}) 완료")
         else:
             print("[LOG][resizeEvent] 열/행 수 변화 없음 — 크기 갱신 생략")
+
+        # 크기 변경 후 항상 전체 재렌더링 (픽스맵 갱신 누락 방지)
+        self._pixmap_dirty = True
+        self.update()
 
     def _resize_pty(self, cols: int, rows: int):
         """PTY 크기 갱신"""
@@ -811,10 +898,28 @@ class TerminalView(QWidget):
 
     def sizeHint(self):
         from PySide6.QtCore import QSize
-        hint = QSize(self._cols * self._cell_w, self._rows * self._cell_h)
+        hint = QSize(self._cols * self._cell_w + _SCROLLBAR_WIDTH, self._rows * self._cell_h)
         print(f"[LOG][sizeHint] → {hint.width()}×{hint.height()}px "
-              f"({self._cols}열×{self._rows}행, 셀={self._cell_w}×{self._cell_h}px)")
+              f"({self._cols}열×{self._rows}행, 셀={self._cell_w}×{self._cell_h}px, "
+              f"스크롤바={_SCROLLBAR_WIDTH}px)")
         return hint
+
+    def wheelEvent(self, event):
+        """마우스 휠로 스크롤백 히스토리 스크롤."""
+        if self._screen is None or not hasattr(self._screen, 'history'):
+            event.ignore()
+            return
+        delta = event.angleDelta().y()
+        lines = max(1, abs(delta) // _WHEEL_DELTA_PER_LINE)
+        history_len = len(self._screen.history.top)
+        if delta > 0:  # 위로 스크롤
+            self._scroll_offset = min(self._scroll_offset + lines, history_len)
+        else:           # 아래로 스크롤
+            self._scroll_offset = max(0, self._scroll_offset - lines)
+        self._update_scrollbar_range()
+        self._pixmap_dirty = True
+        self.update()
+        event.accept()
 
     def focusNextPrevChild(self, _next: bool) -> bool:
         # Tab/Shift+Tab must be forwarded to the PTY shell (for tab completion),
