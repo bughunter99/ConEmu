@@ -2,7 +2,7 @@
 ConEmu Python 변환 - 터미널 뷰 위젯
 CVirtualConsole + CVConChild 대응 (1단계 프로토타입)
 
-- PyQt6 QWidget 기반 커스텀 터미널 렌더링
+- PySide6 QWidget 기반 커스텀 터미널 렌더링
 - pyte를 사용한 VT100/ANSI 화면 버퍼 관리
 - pywinpty(Windows) 또는 ptyprocess(Unix)로 PTY 관리
 """
@@ -14,14 +14,14 @@ import traceback
 
 print(f"[LOG][module] terminal_view 로딩 시작 — Python {sys.version}, 플랫폼={sys.platform}")
 
-from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QRect
-from PyQt6.QtGui import (
+from PySide6.QtWidgets import QWidget, QApplication
+from PySide6.QtCore import Qt, QTimer, Signal, QRect
+from PySide6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QKeyEvent,
     QMouseEvent, QPaintEvent, QResizeEvent, QClipboard
 )
 
-print("[LOG][module] PyQt6 임포트 성공")
+print("[LOG][module] PySide6 임포트 성공")
 
 try:
     import pyte
@@ -99,8 +99,8 @@ class TerminalView(QWidget):
     CVirtualConsole (C++) 대응.
     """
 
-    title_changed = pyqtSignal(str)
-    process_exited = pyqtSignal()
+    title_changed = Signal(str)
+    process_exited = Signal()
 
     # 우선순위 순으로 시도할 폰트 목록
     _FONT_CANDIDATES = [
@@ -117,7 +117,7 @@ class TerminalView(QWidget):
     def _pick_font(size: int) -> "QFont":
         """시스템에서 사용 가능한 모노스페이스 폰트를 찾아 반환"""
         print(f"[LOG][_pick_font] 폰트 탐색 시작 — 요청 크기={size}pt")
-        from PyQt6.QtGui import QFontDatabase
+        from PySide6.QtGui import QFontDatabase
         available = set(QFontDatabase.families())
         print(f"[LOG][_pick_font] 시스템 폰트 패밀리 수={len(available)}")
         for name in TerminalView._FONT_CANDIDATES:
@@ -519,7 +519,7 @@ class TerminalView(QWidget):
         key = event.key()
         text = event.text()
         mods = event.modifiers()
-        # PyQt6에서 Qt enum은 int() 직접 변환 불가 → .value 사용 (PyQt5 호환)
+        # PySide6에서 Qt enum은 int() 직접 변환 불가 → .value 사용 (PyQt5 호환)
         key_int = key.value if hasattr(key, 'value') else int(key)
         mods_int = mods.value if hasattr(mods, 'value') else int(mods)
         print(f"[LOG][keyPressEvent] key={key}({hex(key_int)}), text={text!r}, "
@@ -673,7 +673,7 @@ class TerminalView(QWidget):
     # ------------------------------------------------------------------
 
     def sizeHint(self):
-        from PyQt6.QtCore import QSize
+        from PySide6.QtCore import QSize
         hint = QSize(self._cols * self._cell_w, self._rows * self._cell_h)
         print(f"[LOG][sizeHint] → {hint.width()}×{hint.height()}px "
               f"({self._cols}열×{self._rows}행, 셀={self._cell_w}×{self._cell_h}px)")

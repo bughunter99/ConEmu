@@ -37,7 +37,7 @@ pyversion/
 - Win32 API 사용 목록 및 Python 대응 라이브러리
 - 시스템 DLL/COM 사용 목록
 - C++ 커스텀 컨테이너 → Python 표준 타입 매핑
-- 추천 Python 라이브러리 스택 (`PyQt6`, `pyte`, `psutil`, `pywinpty`)
+- 추천 Python 라이브러리 스택 (`PySide6`, `pyte`, `psutil`, `pywinpty`)
 - `requirements.txt` 예상 내용
 
 ### [conversion_plan.md](./conversion_plan.md)
@@ -59,7 +59,7 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # 의존성 설치
-pip install PyQt6 pyte psutil
+pip install PySide6 pyte psutil
 
 # Windows 추가
 pip install pywinpty pywin32

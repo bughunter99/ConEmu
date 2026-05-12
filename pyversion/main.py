@@ -4,7 +4,7 @@ CConEmuMain::WinMain() 대응
 """
 
 import sys
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 from app import ConEmuApp
 
 
