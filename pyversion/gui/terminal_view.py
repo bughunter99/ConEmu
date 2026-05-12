@@ -64,8 +64,8 @@ DEFAULT_BG = "#1e1e1e"
 
 # 스크롤바 너비 (픽셀) — 터미널 오른쪽 가장자리에 고정 배치
 _SCROLLBAR_WIDTH = 16
-# 마우스 휠 1틱(120 units)당 스크롤할 행 수 계산에 사용하는 단위당 픽셀
-_WHEEL_DELTA_PER_LINE = 40
+# 마우스 휠 angleDelta 단위(120 기준)를 줄 수로 환산할 때 사용하는 단위
+_WHEEL_ANGLE_UNITS_PER_LINE = 40
 
 
 # pyte 색상명 → hex 매핑 (pyte는 색상을 이름 문자열로 반환)
@@ -512,7 +512,7 @@ class TerminalView(QWidget):
         self._pixmap_dirty = True
         self.update()
 
-    def _visible_row_buffer(self, display_row: int, history_list=None):
+    def _visible_row_buffer(self, display_row: int, history_list: list | None = None):
         """현재 뷰포트에서 보이는 display_row의 row buffer를 반환."""
         if self._screen is None:
             return None
@@ -920,7 +920,7 @@ class TerminalView(QWidget):
             event.ignore()
             return
         delta = event.angleDelta().y()
-        lines = max(1, abs(delta) // _WHEEL_DELTA_PER_LINE)
+        lines = max(1, abs(delta) // _WHEEL_ANGLE_UNITS_PER_LINE)
         history_len = len(self._screen.history.top)
         if delta > 0:  # 위로 스크롤
             self._scroll_offset = min(self._scroll_offset + lines, history_len)
@@ -931,9 +931,10 @@ class TerminalView(QWidget):
         self.update()
         event.accept()
 
-    def focusNextPrevChild(self, _next: bool) -> bool:
+    def focusNextPrevChild(self, next_child: bool) -> bool:
         # Tab/Shift+Tab must be forwarded to the PTY shell (for tab completion),
         # not consumed by Qt for focus navigation between widgets.
+        _ = next_child
         return False
 
     def mousePressEvent(self, event: QMouseEvent):
