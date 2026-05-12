@@ -3,6 +3,8 @@ ConEmu Python 변환 - 메인 애플리케이션 창
 CConEmuMain 클래스 대응 (1단계 프로토타입)
 """
 
+from __future__ import annotations
+
 import sys
 from typing import Callable
 
@@ -26,7 +28,7 @@ print("[LOG][app.py] 모듈 로딩 완료")
 
 
 class _TerminalSubWindow(QMdiSubWindow):
-    def __init__(self, view: TerminalView, on_close: Callable[[TerminalView, "_TerminalSubWindow"], None], parent=None):
+    def __init__(self, view: TerminalView, on_close: Callable[[TerminalView, _TerminalSubWindow], None], parent=None):
         super().__init__(parent)
         self._view = view
         self._on_close = on_close
@@ -172,7 +174,7 @@ class ConEmuApp(QMainWindow):
         dlg = SettingsDialog(self)
         dlg.exec()
 
-    def _active_subwindow(self) -> _TerminalSubWindow | None:
+    def _get_active_subwindow(self) -> _TerminalSubWindow | None:
         active = self.mdi_area.activeSubWindow()
         if isinstance(active, _TerminalSubWindow):
             return active
@@ -204,7 +206,7 @@ class ConEmuApp(QMainWindow):
         view.process_exited.connect(self._on_process_exited)
         print(f"[LOG][new_tab] TerminalView 생성 완료: {view!r}")
 
-        idx = len(self._subwindow_list()) + 1
+        idx = len(self._tabs) + 1
         sub_window = _TerminalSubWindow(view, self._on_subwindow_closed, self.mdi_area)
         sub_window.setWindowTitle(f"터미널 {idx}")
         sub_window.resize(800, 480)
@@ -230,7 +232,7 @@ class ConEmuApp(QMainWindow):
             windows[index].close()
 
     def _close_current_tab(self):
-        sub_window = self._active_subwindow()
+        sub_window = self._get_active_subwindow()
         print(f"[LOG][_close_current_tab] 현재 창={sub_window!r}")
         if sub_window is None:
             windows = self._subwindow_list()
@@ -268,6 +270,9 @@ class ConEmuApp(QMainWindow):
         if count == 0:
             return
         rect = self.mdi_area.viewport().rect()
+        if rect.width() < count * 32:
+            self.mdi_area.tileSubWindows()
+            return
         base_width = max(1, rect.width() // count)
         x = rect.x()
         for i, window in enumerate(windows):
@@ -283,6 +288,9 @@ class ConEmuApp(QMainWindow):
         if count == 0:
             return
         rect = self.mdi_area.viewport().rect()
+        if rect.height() < count * 24:
+            self.mdi_area.tileSubWindows()
+            return
         base_height = max(1, rect.height() // count)
         y = rect.y()
         for i, window in enumerate(windows):
