@@ -418,10 +418,10 @@ class TerminalView(QWidget):
         while self._running:
             try:
                 if is_winpty:
-                    # winpty.PTY.read()의 첫 번째 파라미터는 blocking(bool)임.
-                    # read(4096) 처럼 int를 positional로 넘기면
-                    # "int object cannot be cast as bool" TypeError 발생 → keyword 사용.
-                    data = self._pty.read(blocking=False)
+                    # blocking=True: 데이터가 올 때까지 OS가 스레드를 재운다.
+                    # blocking=False 비폴링 루프는 CPU를 과도하게 소모하므로 사용하지 않는다.
+                    # stop() 호출 시 _pty.close()가 블로킹 read를 즉시 깨운다.
+                    data = self._pty.read(blocking=True)
                     if data:
                         read_count += 1
                         if read_count <= 10 or read_count % 100 == 0:
