@@ -513,7 +513,15 @@ class TerminalView(QWidget):
         self.update()
 
     def _visible_row_buffer(self, display_row: int, history_list: list | None = None):
-        """현재 뷰포트에서 보이는 display_row의 row buffer를 반환."""
+        """Return row buffer for a visible display row in live or scrollback mode.
+
+        When scrollback is active, we build a virtual timeline of:
+        [history.top rows] + [current live screen rows].
+        `viewport_start` points to the first virtual row currently shown, and
+        `virtual_idx = viewport_start + display_row` selects the row rendered
+        at `display_row`. If `virtual_idx` falls inside history we return a
+        history row; otherwise we map it to the live screen buffer.
+        """
         if self._screen is None:
             return None
         if display_row < 0 or display_row >= self._screen.lines:
@@ -936,6 +944,8 @@ class TerminalView(QWidget):
     def focusNextPrevChild(self, next_child: bool) -> bool:
         # Tab/Shift+Tab must be forwarded to the PTY shell (for tab completion),
         # not consumed by Qt for focus navigation between widgets.
+        # Returning False keeps default focus traversal from consuming Tab here,
+        # so keyPressEvent can forward Tab/Shift+Tab to the terminal process.
         return False
 
     def mousePressEvent(self, event: QMouseEvent):
