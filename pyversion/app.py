@@ -57,6 +57,11 @@ def _make_title_bar_palette(base: QPalette) -> QPalette:
         pal.setColor(QPalette.ColorGroup.Inactive, role, _TITLE_INACTIVE_FG)
     return pal
 _ICON_CANDIDATES: dict[str, list[str]] = {
+    "app": [
+        "src/ConEmu/ConEmu.ico",
+        "src/ConEmu/ConEmu15.ico",
+        "logo/logo-32.png",
+    ],
     "new": [
         "src/ConEmu/Far.ico",
         "logo/logo-32.png",
@@ -81,7 +86,13 @@ _ICON_CANDIDATES: dict[str, list[str]] = {
 
 
 class _TerminalSubWindow(QMdiSubWindow):
-    def __init__(self, view: TerminalView, on_close: Callable[[TerminalView, _TerminalSubWindow], None], parent=None):
+    def __init__(
+        self,
+        view: TerminalView,
+        on_close: Callable[[TerminalView, _TerminalSubWindow], None],
+        parent=None,
+        window_icon: QIcon | None = None,
+    ):
         super().__init__(parent)
         self._view = view
         self._on_close = on_close
@@ -97,7 +108,7 @@ class _TerminalSubWindow(QMdiSubWindow):
         self.setWindowFlags(flags)
         # setWindowFlags()가 창을 내부적으로 재생성하므로 그 이후에 아이콘을 설정해야
         # Qt 기본 아이콘(녹색)으로 리셋되는 것을 막을 수 있음
-        self.setWindowIcon(QIcon())
+        self.setWindowIcon(window_icon or QIcon())
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         # 클래식 Windows 스타일 타이틀바: 활성(파란색) / 비활성(회색)
         self.setPalette(_make_title_bar_palette(self.palette()))
@@ -141,6 +152,7 @@ class ConEmuApp(QMainWindow):
     def _init_ui(self):
         """창 레이아웃 초기화"""
         print("[LOG][_init_ui] 호출")
+        self.setWindowIcon(self._icon_for("app"))
         self.mdi_area = QMdiArea(self)
         self.mdi_area.setViewMode(QMdiArea.ViewMode.SubWindowView)
         # MDI child window 기반 동작을 사용하므로 tabbed view 관련 옵션은 비활성화
@@ -345,7 +357,12 @@ class ConEmuApp(QMainWindow):
         print(f"[LOG][new_tab] TerminalView 생성 완료: {view!r}")
 
         idx = len(self._tabs) + 1
-        sub_window = _TerminalSubWindow(view, self._on_subwindow_closed, self.mdi_area)
+        sub_window = _TerminalSubWindow(
+            view,
+            self._on_subwindow_closed,
+            self.mdi_area,
+            self.windowIcon(),
+        )
         sub_window.setWindowTitle(f"터미널 {idx}")
         sub_window.resize(800, 480)
 
