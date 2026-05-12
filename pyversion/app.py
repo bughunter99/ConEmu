@@ -86,7 +86,6 @@ class _TerminalSubWindow(QMdiSubWindow):
         self._view = view
         self._on_close = on_close
         self.setWidget(view)
-        self.setWindowIcon(QIcon())
         flags = self.windowFlags()
         flags |= (
             Qt.WindowType.CustomizeWindowHint
@@ -96,6 +95,9 @@ class _TerminalSubWindow(QMdiSubWindow):
         )
         flags &= ~Qt.WindowType.WindowSystemMenuHint
         self.setWindowFlags(flags)
+        # setWindowFlags()가 창을 내부적으로 재생성하므로 그 이후에 아이콘을 설정해야
+        # Qt 기본 아이콘(녹색)으로 리셋되는 것을 막을 수 있음
+        self.setWindowIcon(QIcon())
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         # 클래식 Windows 스타일 타이틀바: 활성(파란색) / 비활성(회색)
         self.setPalette(_make_title_bar_palette(self.palette()))
