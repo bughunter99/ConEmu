@@ -32,13 +32,13 @@ print("[LOG][app.py] 모듈 로딩 완료")
 _MIN_VERTICAL_TILE_WIDTH = 32
 _MIN_HORIZONTAL_TILE_HEIGHT = 24
 
-# 클래식 Windows 스타일 MDI 타이틀바 색상
-# 활성 서브윈도우: 남색 배경 + 흰색 텍스트
-# 비활성 서브윈도우: 회색 배경 + 연회색 텍스트
-_TITLE_ACTIVE_BG = QColor("#000080")
+# Windows XP Luna Blue MDI 타이틀바 색상 (QProxyStyle fallback)
+# 활성 서브윈도우: XP 남색 배경 + 흰색 텍스트
+# 비활성 서브윈도우: XP 연파랑 배경 + 연회색 텍스트
+_TITLE_ACTIVE_BG = QColor("#0A246A")
 _TITLE_ACTIVE_FG = QColor("#FFFFFF")
-_TITLE_INACTIVE_BG = QColor("#808080")
-_TITLE_INACTIVE_FG = QColor("#C0C0C0")
+_TITLE_INACTIVE_BG = QColor("#7A96DF")
+_TITLE_INACTIVE_FG = QColor("#D8E8F8")
 
 
 def _make_title_bar_palette(base: QPalette) -> QPalette:
