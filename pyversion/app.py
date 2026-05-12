@@ -26,6 +26,9 @@ from config.settings import AppSettings
 
 print("[LOG][app.py] 모듈 로딩 완료")
 
+_MIN_VERTICAL_TILE_WIDTH = 32
+_MIN_HORIZONTAL_TILE_HEIGHT = 24
+
 
 class _TerminalSubWindow(QMdiSubWindow):
     def __init__(self, view: TerminalView, on_close: Callable[[TerminalView, _TerminalSubWindow], None], parent=None):
@@ -75,6 +78,7 @@ class ConEmuApp(QMainWindow):
         print("[LOG][_init_ui] 호출")
         self.mdi_area = QMdiArea(self)
         self.mdi_area.setViewMode(QMdiArea.ViewMode.SubWindowView)
+        # MDI child window 기반 동작을 사용하므로 tabbed view 관련 옵션은 비활성화
         self.mdi_area.setTabsClosable(False)
         self.mdi_area.setTabsMovable(False)
         self.setCentralWidget(self.mdi_area)
@@ -270,7 +274,7 @@ class ConEmuApp(QMainWindow):
         if count == 0:
             return
         rect = self.mdi_area.viewport().rect()
-        if rect.width() < count * 32:
+        if rect.width() < count * _MIN_VERTICAL_TILE_WIDTH:
             self.mdi_area.tileSubWindows()
             return
         base_width = max(1, rect.width() // count)
@@ -288,7 +292,7 @@ class ConEmuApp(QMainWindow):
         if count == 0:
             return
         rect = self.mdi_area.viewport().rect()
-        if rect.height() < count * 24:
+        if rect.height() < count * _MIN_HORIZONTAL_TILE_HEIGHT:
             self.mdi_area.tileSubWindows()
             return
         base_height = max(1, rect.height() // count)
