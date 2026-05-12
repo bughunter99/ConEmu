@@ -539,6 +539,37 @@ class TerminalView(QWidget):
             return self._screen.buffer[live_row]
         return None
 
+    def _virtual_row_by_display_row(self, display_row: int, history_list: list | None = None) -> int | None:
+        """현재 뷰포트 기준 display_row를 가상 타임라인 row 인덱스로 변환한다."""
+        if self._screen is None:
+            return None
+        if display_row < 0 or display_row >= self._screen.lines:
+            return None
+        if not hasattr(self._screen, 'history'):
+            return display_row
+        if history_list is None:
+            history_list = list(self._screen.history.top)
+        viewport_start = max(0, len(history_list) - self._scroll_offset)
+        return viewport_start + display_row
+
+    def _row_buffer_by_virtual_row(self, virtual_row: int, history_list: list | None = None) -> dict | None:
+        """가상 타임라인 row 인덱스에 해당하는 row buffer를 반환한다."""
+        if self._screen is None or virtual_row < 0:
+            return None
+        if not hasattr(self._screen, 'history'):
+            if 0 <= virtual_row < self._screen.lines:
+                return self._screen.buffer[virtual_row]
+            return None
+        if history_list is None:
+            history_list = list(self._screen.history.top)
+        total_hist = len(history_list)
+        if virtual_row < total_hist:
+            return history_list[virtual_row]
+        live_row = virtual_row - total_hist
+        if 0 <= live_row < self._screen.lines:
+            return self._screen.buffer[live_row]
+        return None
+
     # ------------------------------------------------------------------
     # 렌더링 (CVirtualConsole::Paint() 대응)
     # ------------------------------------------------------------------
@@ -650,16 +681,24 @@ class TerminalView(QWidget):
     def _paint_selection_overlay(self, painter: QPainter):
         """선택 영역을 반투명 파란색으로 덧그린다."""
         sel = self._selection_range()
-        if sel is None:
+        if sel is None or self._screen is None:
             return
         (sc, sr), (ec, er) = sel
         sel_color = QColor(100, 150, 255, 120)
-        cols = self._screen.columns if self._screen else self._cols
-        for row in range(sr, er + 1):
-            col_start = sc if row == sr else 0
-            col_end = ec if row == er else cols - 1
+        cols = self._screen.columns
+        history_list = list(self._screen.history.top) if hasattr(self._screen, 'history') else []
+        viewport_start = max(0, len(history_list) - self._scroll_offset)
+        viewport_end = viewport_start + self._screen.lines - 1
+        visible_start = max(sr, viewport_start)
+        visible_end = min(er, viewport_end)
+        if visible_start > visible_end:
+            return
+        for virtual_row in range(visible_start, visible_end + 1):
+            display_row = virtual_row - viewport_start
+            col_start = sc if virtual_row == sr else 0
+            col_end = ec if virtual_row == er else cols - 1
             x = col_start * self._cell_w
-            y = row * self._cell_h
+            y = display_row * self._cell_h
             w = (col_end - col_start + 1) * self._cell_w
             painter.fillRect(x, y, w, self._cell_h, sel_color)
 
@@ -788,12 +827,21 @@ class TerminalView(QWidget):
         return e, a
 
     def _cell_at(self, pos) -> "tuple[int, int]":
-        """픽셀 좌표 → (col, row) 터미널 셀 인덱스"""
+        """픽셀 좌표 → (col, display_row) 터미널 셀 인덱스"""
         col = max(0, min(int(pos.x()) // max(1, self._cell_w),
                          (self._screen.columns - 1) if self._screen else self._cols - 1))
         row = max(0, min(int(pos.y()) // max(1, self._cell_h),
                          (self._screen.lines - 1) if self._screen else self._rows - 1))
         return col, row
+
+    def _virtual_cell_at(self, pos) -> "tuple[int, int]":
+        """픽셀 좌표 → (col, virtual_row) 선택용 터미널 셀 인덱스"""
+        col, display_row = self._cell_at(pos)
+        history_list = list(self._screen.history.top) if (self._screen and hasattr(self._screen, 'history')) else []
+        virtual_row = self._virtual_row_by_display_row(display_row, history_list=history_list)
+        if virtual_row is None:
+            virtual_row = display_row
+        return col, virtual_row
 
     def _copy_selection(self):
         """선택된 텍스트를 클립보드에 복사한다."""
@@ -803,16 +851,16 @@ class TerminalView(QWidget):
             return
         (sc, sr), (ec, er) = sel
         history_list = None
-        if self._scroll_offset > 0 and hasattr(self._screen, 'history'):
+        if hasattr(self._screen, 'history'):
             history_list = list(self._screen.history.top)
         lines = []
-        for row in range(sr, er + 1):
-            row_buf = self._visible_row_buffer(row, history_list=history_list)
+        for virtual_row in range(sr, er + 1):
+            row_buf = self._row_buffer_by_virtual_row(virtual_row, history_list=history_list)
             if row_buf is None:
                 lines.append("")
                 continue
-            col_start = sc if row == sr else 0
-            col_end = ec if row == er else self._screen.columns - 1
+            col_start = sc if virtual_row == sr else 0
+            col_end = ec if virtual_row == er else self._screen.columns - 1
             text = "".join(row_buf[c].data or " " for c in range(col_start, col_end + 1))
             lines.append(text.rstrip())
         clipboard_text = "\n".join(lines)
@@ -952,7 +1000,7 @@ class TerminalView(QWidget):
     def mousePressEvent(self, event: QMouseEvent):
         self.setFocus()
         if event.button() == Qt.MouseButton.LeftButton:
-            cell = self._cell_at(event.position())
+            cell = self._virtual_cell_at(event.position())
             print(f"[LOG][mousePressEvent] 선택 시작: cell={cell}")
             self._sel_anchor = cell
             self._sel_end_cell = cell
@@ -973,14 +1021,14 @@ class TerminalView(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._selecting:
-            cell = self._cell_at(event.position())
+            cell = self._virtual_cell_at(event.position())
             if cell != self._sel_end_cell:
                 self._sel_end_cell = cell
                 self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton and self._selecting:
-            self._sel_end_cell = self._cell_at(event.position())
+            self._sel_end_cell = self._virtual_cell_at(event.position())
             self._selecting = False
             print(f"[LOG][mouseReleaseEvent] 선택 완료: "
                   f"{self._sel_anchor} → {self._sel_end_cell}")
