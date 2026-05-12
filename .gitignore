@@ -60,3 +60,7 @@ Release/**/*.lib
 pvs-studio*.*
 /src/*.PVS-Studio.*
 /src/.pvs/
+
+# Python cache artifacts
+__pycache__/
+*.pyc
