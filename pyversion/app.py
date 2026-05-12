@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence, QShortcut, QIcon
+from PySide6.QtGui import QAction, QKeySequence, QShortcut, QIcon, QPalette, QColor
 
 from gui.terminal_view import TerminalView
 from gui.settings_dialog import SettingsDialog, register_settings_changed
@@ -30,6 +30,31 @@ print("[LOG][app.py] 모듈 로딩 완료")
 
 _MIN_VERTICAL_TILE_WIDTH = 32
 _MIN_HORIZONTAL_TILE_HEIGHT = 24
+
+# 클래식 Windows 스타일 MDI 타이틀바 색상
+# 활성 서브윈도우: 남색 배경 + 흰색 텍스트
+# 비활성 서브윈도우: 회색 배경 + 연회색 텍스트
+_TITLE_ACTIVE_BG = QColor("#000080")
+_TITLE_ACTIVE_FG = QColor("#FFFFFF")
+_TITLE_INACTIVE_BG = QColor("#808080")
+_TITLE_INACTIVE_FG = QColor("#C0C0C0")
+
+
+def _make_title_bar_palette(base: QPalette) -> QPalette:
+    """클래식 Windows 스타일 타이틀바 색상이 적용된 팔레트 반환."""
+    pal = QPalette(base)
+    # Qt 스타일마다 타이틀바에 사용하는 ColorRole이 다름:
+    # Fusion 스타일 → Highlight, Windows 스타일 → Window
+    # 두 가지 모두 설정해 두어 어느 스타일에서도 동작하도록 함
+    for role in (QPalette.ColorRole.Window, QPalette.ColorRole.Highlight):
+        pal.setColor(QPalette.ColorGroup.Active, role, _TITLE_ACTIVE_BG)
+        pal.setColor(QPalette.ColorGroup.Inactive, role, _TITLE_INACTIVE_BG)
+    for role in (QPalette.ColorRole.WindowText,
+                 QPalette.ColorRole.HighlightedText,
+                 QPalette.ColorRole.BrightText):
+        pal.setColor(QPalette.ColorGroup.Active, role, _TITLE_ACTIVE_FG)
+        pal.setColor(QPalette.ColorGroup.Inactive, role, _TITLE_INACTIVE_FG)
+    return pal
 _ICON_CANDIDATES: dict[str, list[str]] = {
     "new": [
         "src/ConEmu/Far.ico",
@@ -62,6 +87,8 @@ class _TerminalSubWindow(QMdiSubWindow):
         self.setWidget(view)
         self.setWindowIcon(QIcon())
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        # 클래식 Windows 스타일 타이틀바: 활성(파란색) / 비활성(회색)
+        self.setPalette(_make_title_bar_palette(self.palette()))
 
     def closeEvent(self, event):
         if self._view is not None:
@@ -108,6 +135,8 @@ class ConEmuApp(QMainWindow):
         self.mdi_area.setTabsClosable(False)
         self.mdi_area.setTabsMovable(False)
         self.setCentralWidget(self.mdi_area)
+        # 활성 서브윈도우가 바뀔 때 모든 창의 타이틀바를 즉시 재렌더링
+        self.mdi_area.subWindowActivated.connect(self._on_subwindow_activated)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -230,6 +259,11 @@ class ConEmuApp(QMainWindow):
             f"[LOG][_apply_settings] 완료 — title={s.window_title!r}, "
             f"font={s.font_family}/{s.font_size}"
         )
+
+    def _on_subwindow_activated(self, _active: QMdiSubWindow | None) -> None:
+        """활성 서브윈도우 변경 시 모든 타이틀바를 즉시 다시 그림."""
+        for sw in self._subwindow_list():
+            sw.update()
 
     def open_settings(self):
         """설정 다이얼로그 열기 (Ctrl+, 또는 메뉴 → 편집 → 설정)"""
