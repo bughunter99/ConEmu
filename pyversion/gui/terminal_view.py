@@ -9,6 +9,7 @@ CVirtualConsole + CVConChild 대응 (1단계 프로토타입)
 
 import sys
 import os
+import shlex
 import threading
 import traceback
 
@@ -164,7 +165,7 @@ class TerminalView(QWidget):
         self._pixmap_dirty = True  # 오프스크린 버퍼 강제 재렌더링
         self.update()   # 다시 그리기
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, startup_shell: str | None = None):
         print(f"[LOG][__init__] TerminalView 생성 시작 — parent={parent!r}")
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -178,6 +179,7 @@ class TerminalView(QWidget):
             self._settings = AppSettings.instance()
         except Exception:
             self._settings = None
+        self._startup_shell_override = startup_shell.strip() if startup_shell else ""
 
         # 폰트 초기화 (설정 우선, 없으면 시스템 탐색)
         self._font = self._build_font_from_settings()
@@ -226,6 +228,20 @@ class TerminalView(QWidget):
 
         print("[LOG][__init__] TerminalView 생성 완료")
 
+    def _resolve_startup_shell(self, default_shell: str) -> str:
+        if self._startup_shell_override:
+            return self._startup_shell_override
+        if self._settings is not None and self._settings.startup_shell.strip():
+            return self._settings.startup_shell.strip()
+        return default_shell
+
+    @staticmethod
+    def _split_command(command: str) -> list[str]:
+        try:
+            return shlex.split(command, posix=(sys.platform != "win32"))
+        except ValueError:
+            return [command]
+
     # ------------------------------------------------------------------
     # pyte 화면 버퍼 초기화
     # ------------------------------------------------------------------
@@ -273,17 +289,18 @@ class TerminalView(QWidget):
                 print("[LOG][_start_windows] winpty 버전 확인 불가")
             self._pty = winpty.PTY(self._cols, self._rows)
             print(f"[LOG][_start_windows] PTY 객체 생성 — 크기=({self._cols}×{self._rows})")
-            shell = os.environ.get("COMSPEC", "cmd.exe")
+            shell = self._resolve_startup_shell(os.environ.get("COMSPEC", "cmd.exe"))
             print(f"[LOG][_start_windows] 쉘 경로: {shell}")
             self._pty.spawn(shell)
             print("[LOG][_start_windows] PTY spawn 완료")
         except ImportError as ie:
             print(f"[WARN][_start_windows] pywinpty ImportError: {ie} → subprocess fallback 사용")
             import subprocess
-            shell = os.environ.get("COMSPEC", "cmd.exe")
+            shell = self._resolve_startup_shell(os.environ.get("COMSPEC", "cmd.exe"))
             print(f"[LOG][_start_windows] subprocess 쉘: {shell}")
+            argv = self._split_command(shell)
             self._pty = subprocess.Popen(
-                [shell],
+                argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -310,19 +327,20 @@ class TerminalView(QWidget):
                 print(f"[LOG][_start_unix] ptyprocess 버전={_v('ptyprocess')}")
             except Exception:
                 print("[LOG][_start_unix] ptyprocess 버전 확인 불가")
-            shell = os.environ.get("SHELL", "/bin/bash")
+            shell = self._resolve_startup_shell(os.environ.get("SHELL", "/bin/bash"))
             print(f"[LOG][_start_unix] 쉘 경로: {shell}")
-            self._pty = ptyprocess.PtyProcess.spawn([shell])
+            self._pty = ptyprocess.PtyProcess.spawn(self._split_command(shell))
             print(f"[LOG][_start_unix] PTY spawn 완료 — PID={self._pty.pid}, "
                   f"fd={self._pty.fd}, closed={self._pty.closed}")
         except ImportError as ie:
             print(f"[WARN][_start_unix] ptyprocess ImportError: {ie} → subprocess fallback")
             print("[WARN][_start_unix] 'pip install ptyprocess' 설치를 권장합니다")
             import subprocess
-            shell = os.environ.get("SHELL", "/bin/sh")
+            shell = self._resolve_startup_shell(os.environ.get("SHELL", "/bin/sh"))
             print(f"[LOG][_start_unix] subprocess 쉘: {shell}")
+            argv = self._split_command(shell)
             self._pty = subprocess.Popen(
-                [shell],
+                argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,

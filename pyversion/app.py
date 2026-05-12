@@ -168,6 +168,9 @@ class ConEmuApp(QMainWindow):
         self._close_all_action = QAction("모든 창 닫기(&L)", self)
         self._close_all_action.triggered.connect(self._close_all_windows)
 
+        self._new_msys_mingw64_action = QAction("MSYS2 MinGW64 창(&M)", self)
+        self._new_msys_mingw64_action.triggered.connect(self._new_msys_mingw64_tab)
+
         self._quit_action = QAction("종료(&Q)", self)
         self._quit_action.triggered.connect(self.close)
 
@@ -195,6 +198,8 @@ class ConEmuApp(QMainWindow):
         # 메뉴 순서: 파일, 편집, 창, 도움말
         file_menu = menubar.addMenu("파일(&F)")
         file_menu.addAction(self._new_action)
+        file_menu.addAction(self._new_msys_mingw64_action)
+        file_menu.addSeparator()
         file_menu.addAction(self._close_action)
         file_menu.addAction(self._close_all_action)
 
@@ -209,6 +214,8 @@ class ConEmuApp(QMainWindow):
         window_menu.addAction(self._tile_action)
         window_menu.addAction(self._vertical_action)
         window_menu.addAction(self._horizontal_action)
+        window_menu.addSeparator()
+        window_menu.addAction(self._close_all_action)
 
         help_menu = menubar.addMenu("도움말(&H)")
         help_menu.addAction(self._about_action)
@@ -304,10 +311,30 @@ class ConEmuApp(QMainWindow):
             print("[LOG][_on_subwindow_closed] 마지막 창 닫힘 — 앱 종료")
             self.close()
 
-    def new_tab(self):
+    def _msys_mingw64_command(self) -> str | None:
+        root = (self._settings.msys64_root or "").strip()
+        if not root:
+            return None
+        cmd = Path(root) / "msys2_shell.cmd"
+        if not cmd.exists():
+            return None
+        return f'"{cmd}" -defterm -no-start -mingw64 -here'
+
+    def _new_msys_mingw64_tab(self):
+        command = self._msys_mingw64_command()
+        if command is None:
+            QMessageBox.warning(
+                self,
+                "MSYS2 설정 필요",
+                "MSYS2 MinGW64 쉘을 열려면 설정 → 일반에서 msys64 경로를 입력하세요.",
+            )
+            return
+        self.new_tab(startup_shell=command)
+
+    def new_tab(self, startup_shell: str | None = None):
         """새 터미널 MDI 창 생성 (CConEmuMain::CreateVCon() 대응)"""
         print("[LOG][new_tab] 호출")
-        view = TerminalView(self.mdi_area)
+        view = TerminalView(self.mdi_area, startup_shell=startup_shell)
         view.title_changed.connect(self._on_tab_title_changed)
         view.process_exited.connect(self._on_process_exited)
         print(f"[LOG][new_tab] TerminalView 생성 완료: {view!r}")
