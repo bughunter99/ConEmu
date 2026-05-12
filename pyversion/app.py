@@ -266,13 +266,13 @@ class ConEmuApp(QMainWindow):
         self._path_edit = QLineEdit()
         self._path_edit.setPlaceholderText("폴더 경로 입력...")
         self._path_edit.setFixedWidth(220)
-        self._path_edit.setToolTip("경로를 입력하고 Enter 또는 열기 버튼을 누르면 해당 경로에서 CMD 창이 열립니다.")
+        self._path_edit.setToolTip("경로를 입력하고 Enter 또는 열기 버튼을 누르면 해당 경로에서 명령창이 열립니다.")
         self._path_edit.returnPressed.connect(self._open_cmd_at_path)
         toolbar.addWidget(self._path_edit)
 
         # 열기 버튼
         self._open_path_btn = QPushButton("열기")
-        self._open_path_btn.setToolTip("입력한 경로에서 CMD 창 열기")
+        self._open_path_btn.setToolTip("입력한 경로에서 명령창 열기")
         self._open_path_btn.clicked.connect(self._open_cmd_at_path)
         toolbar.addWidget(self._open_path_btn)
 
@@ -300,11 +300,20 @@ class ConEmuApp(QMainWindow):
                     cwd=path,
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 )
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Terminal", path])
             else:
-                # Windows 외 환경(개발·테스트용)에서는 x-terminal-emulator 시도
-                subprocess.Popen(["x-terminal-emulator"], cwd=path)
-            self.status_bar.showMessage(f"CMD 창 열기 완료: {path}")
-            print(f"[LOG][_open_cmd_at_path] CMD 창 열기 완료: {path!r}")
+                # Linux: 사용 가능한 터미널 에뮬레이터 순서대로 시도
+                for terminal in ("x-terminal-emulator", "gnome-terminal", "xterm"):
+                    try:
+                        subprocess.Popen([terminal], cwd=path)
+                        break
+                    except FileNotFoundError:
+                        continue
+                else:
+                    raise FileNotFoundError("사용 가능한 터미널 에뮬레이터를 찾을 수 없습니다.")
+            self.status_bar.showMessage(f"명령창 열기 완료: {path}")
+            print(f"[LOG][_open_cmd_at_path] 명령창 열기 완료: {path!r}")
         except Exception as exc:
             QMessageBox.critical(self, "오류", f"CMD 창을 열 수 없습니다:\n{exc}")
             print(f"[LOG][_open_cmd_at_path] 오류: {exc}")
