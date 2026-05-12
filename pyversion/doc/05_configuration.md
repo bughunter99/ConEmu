@@ -32,6 +32,7 @@ GUI로 설정을 변경하려면:
 {
   "general": {
     "startup_shell": "",
+    "msys64_root": "",
     "scrollback_lines": 9999,
     "save_on_exit": true,
     "config_file": "/home/user/.conemu-py/config.json"
@@ -102,6 +103,7 @@ GUI로 설정을 변경하려면:
 | 키 | 타입 | 기본값 | 설명 |
 |---|---|---|---|
 | `startup_shell` | string | `""` | 시작 시 실행할 쉘 경로. 비어 있으면 OS 기본 쉘 사용 (Linux: `$SHELL`, Windows: `%COMSPEC%`) |
+| `msys64_root` | string | `""` | MSYS2 루트 경로(예: `C:\msys64`). 설정하면 파일 메뉴에서 **MSYS2 MinGW64 창** 실행 가능 |
 | `scrollback_lines` | int | `9999` | 스크롤 히스토리 최대 줄 수. 100 이상이어야 합니다 |
 | `save_on_exit` | bool | `true` | `true`이면 앱 종료 시 현재 설정을 자동으로 저장합니다 |
 

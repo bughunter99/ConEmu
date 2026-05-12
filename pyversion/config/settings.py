@@ -27,6 +27,7 @@ _DEFAULTS: dict[str, Any] = {
     # ── General (CSetPgGeneral) ──────────────────────────────────────────
     "general": {
         "startup_shell":     "",          # 빈 문자열 → OS 기본 셸
+        "msys64_root":       "",          # MSYS2 설치 루트 (예: C:\msys64)
         "scrollback_lines":  9999,        # 스크롤백 버퍼 줄 수
         "save_on_exit":      True,        # 종료 시 설정 저장
         "config_file":       _CONFIG_FILE,
@@ -192,6 +193,14 @@ class AppSettings:
     @startup_shell.setter
     def startup_shell(self, v: str) -> None:
         self._set("general", "startup_shell", v)
+
+    @property
+    def msys64_root(self) -> str:
+        return self._get("general", "msys64_root") or ""
+
+    @msys64_root.setter
+    def msys64_root(self, v: str) -> None:
+        self._set("general", "msys64_root", v)
 
     @property
     def scrollback_lines(self) -> int:

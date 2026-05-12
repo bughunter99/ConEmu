@@ -1,7 +1,7 @@
 """
 ConEmu Python 변환 - 설정 다이얼로그 (Set*.cpp 대응)
 
-원본 ConEmu의 설정 창(IDD_SETTINGS)과 각 페이지(SetPg*)를 PyQt6로 구현.
+원본 ConEmu의 설정 창(IDD_SETTINGS)과 각 페이지(SetPg*)를 PySide6로 구현.
 
 페이지 구성 (thi_* enum 대응):
   General    (thi_General)  - 일반: 시작 셸, 스크롤백
@@ -15,15 +15,15 @@ ConEmu Python 변환 - 설정 다이얼로그 (Set*.cpp 대응)
 import sys
 from typing import Callable
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QStackedWidget, QWidget, QLabel, QLineEdit, QSpinBox, QCheckBox,
     QComboBox, QPushButton, QDialogButtonBox, QGroupBox, QGridLayout,
     QColorDialog, QFontDialog, QTableWidget, QTableWidgetItem,
     QHeaderView, QSizePolicy, QFrame,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPalette
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPalette
 
 from config.settings import AppSettings
 
@@ -51,7 +51,7 @@ def _notify_settings_changed() -> None:
 
 class _ColorButton(QPushButton):
     """색상 선택 버튼 — 클릭하면 QColorDialog 열림"""
-    color_changed = pyqtSignal(str)   # 새 hex 색상 문자열
+    color_changed = Signal(str)   # 새 hex 색상 문자열
 
     def __init__(self, color: str = "#000000", parent=None):
         super().__init__(parent)
@@ -109,6 +109,11 @@ class _GeneralPage(_BasePage):
         self._shell_edit.setPlaceholderText("비워두면 OS 기본 셸 (cmd.exe / bash)")
         layout.addWidget(self._shell_edit)
 
+        layout.addWidget(_section_label("MSYS2 (msys64)"))
+        self._msys64_root_edit = QLineEdit()
+        self._msys64_root_edit.setPlaceholderText("예: C:\\msys64")
+        layout.addWidget(self._msys64_root_edit)
+
         layout.addWidget(_section_label("스크롤백 버퍼"))
         row = QHBoxLayout()
         row.addWidget(QLabel("최대 줄 수:"))
@@ -127,11 +132,13 @@ class _GeneralPage(_BasePage):
 
     def load(self, s: AppSettings):
         self._shell_edit.setText(s.startup_shell)
+        self._msys64_root_edit.setText(s.msys64_root)
         self._scroll_spin.setValue(s.scrollback_lines)
         self._save_on_exit.setChecked(s.save_on_exit)
 
     def apply(self, s: AppSettings):
         s.startup_shell = self._shell_edit.text().strip()
+        s.msys64_root = self._msys64_root_edit.text().strip()
         s.scrollback_lines = self._scroll_spin.value()
         s.save_on_exit = self._save_on_exit.isChecked()
 

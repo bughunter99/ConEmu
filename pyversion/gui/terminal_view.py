@@ -2,26 +2,28 @@
 ConEmu Python 변환 - 터미널 뷰 위젯
 CVirtualConsole + CVConChild 대응 (1단계 프로토타입)
 
-- PyQt6 QWidget 기반 커스텀 터미널 렌더링
+- PySide6 QWidget 기반 커스텀 터미널 렌더링
 - pyte를 사용한 VT100/ANSI 화면 버퍼 관리
 - pywinpty(Windows) 또는 ptyprocess(Unix)로 PTY 관리
 """
 
 import sys
 import os
+import shlex
 import threading
 import traceback
 
 print(f"[LOG][module] terminal_view 로딩 시작 — Python {sys.version}, 플랫폼={sys.platform}")
 
-from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QRect
-from PyQt6.QtGui import (
+from PySide6.QtWidgets import QWidget, QApplication
+from PySide6.QtCore import Qt, QTimer, Signal, QRect
+from PySide6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QKeyEvent,
-    QMouseEvent, QPaintEvent, QResizeEvent, QClipboard
+    QMouseEvent, QPaintEvent, QResizeEvent, QClipboard,
+    QPixmap,
 )
 
-print("[LOG][module] PyQt6 임포트 성공")
+print("[LOG][module] PySide6 임포트 성공")
 
 try:
     import pyte
@@ -99,8 +101,8 @@ class TerminalView(QWidget):
     CVirtualConsole (C++) 대응.
     """
 
-    title_changed = pyqtSignal(str)
-    process_exited = pyqtSignal()
+    title_changed = Signal(str)
+    process_exited = Signal()
 
     # 우선순위 순으로 시도할 폰트 목록
     _FONT_CANDIDATES = [
@@ -117,7 +119,7 @@ class TerminalView(QWidget):
     def _pick_font(size: int) -> "QFont":
         """시스템에서 사용 가능한 모노스페이스 폰트를 찾아 반환"""
         print(f"[LOG][_pick_font] 폰트 탐색 시작 — 요청 크기={size}pt")
-        from PyQt6.QtGui import QFontDatabase
+        from PySide6.QtGui import QFontDatabase
         available = set(QFontDatabase.families())
         print(f"[LOG][_pick_font] 시스템 폰트 패밀리 수={len(available)}")
         for name in TerminalView._FONT_CANDIDATES:
@@ -160,9 +162,10 @@ class TerminalView(QWidget):
         self._cell_h = fm.height()
         print(f"[LOG][apply_settings] 폰트 갱신: '{self._font.family()}' "
               f"{self._font.pointSize()}pt, 셀={self._cell_w}×{self._cell_h}px")
+        self._pixmap_dirty = True  # 오프스크린 버퍼 강제 재렌더링
         self.update()   # 다시 그리기
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, startup_shell: str | None = None):
         print(f"[LOG][__init__] TerminalView 생성 시작 — parent={parent!r}")
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -176,6 +179,7 @@ class TerminalView(QWidget):
             self._settings = AppSettings.instance()
         except Exception:
             self._settings = None
+        self._startup_shell_override = startup_shell.strip() if startup_shell else ""
 
         # 폰트 초기화 (설정 우선, 없으면 시스템 탐색)
         self._font = self._build_font_from_settings()
@@ -205,12 +209,39 @@ class TerminalView(QWidget):
         # 화면 갱신 타이머
         self._repaint_timer = QTimer(self)
         self._repaint_timer.setInterval(16)  # ~60fps
-        self._repaint_timer.timeout.connect(self.update)
+        self._repaint_timer.timeout.connect(self._on_repaint_timer)
         print("[LOG][__init__] repaint 타이머 생성 완료 (16ms 간격, 아직 미시작)")
 
         # 렌더링 카운터 초기화
         self._paint_count = 0
+
+        # 오프스크린 픽스맵 더블 버퍼링 (성능 최적화)
+        self._pixmap: QPixmap | None = None
+        self._pixmap_dirty: bool = True  # 최초 렌더링 강제
+        self._dirty: bool = False         # PTY 데이터 도착 여부
+
+        # 텍스트 선택 상태
+        # 각 좌표는 (col, row) 형태의 터미널 셀 인덱스
+        self._sel_anchor: tuple[int, int] | None = None  # 마우스 눌린 셀
+        self._sel_end_cell: tuple[int, int] | None = None  # 마우스 현재 셀
+        self._selecting: bool = False                       # 마우스 드래그 중
+
         print("[LOG][__init__] TerminalView 생성 완료")
+
+    def _resolve_startup_shell(self, default_shell: str) -> str:
+        if self._startup_shell_override:
+            return self._startup_shell_override
+        if self._settings is not None and self._settings.startup_shell.strip():
+            return self._settings.startup_shell.strip()
+        return default_shell
+
+    @staticmethod
+    def _split_command(command: str) -> list[str]:
+        try:
+            return shlex.split(command, posix=(sys.platform != "win32"))
+        except ValueError as e:
+            print(f"[WARN][_split_command] 명령 파싱 실패: {command!r} ({e})")
+            return [command]
 
     # ------------------------------------------------------------------
     # pyte 화면 버퍼 초기화
@@ -259,17 +290,18 @@ class TerminalView(QWidget):
                 print("[LOG][_start_windows] winpty 버전 확인 불가")
             self._pty = winpty.PTY(self._cols, self._rows)
             print(f"[LOG][_start_windows] PTY 객체 생성 — 크기=({self._cols}×{self._rows})")
-            shell = os.environ.get("COMSPEC", "cmd.exe")
+            shell = self._resolve_startup_shell(os.environ.get("COMSPEC", "cmd.exe"))
             print(f"[LOG][_start_windows] 쉘 경로: {shell}")
             self._pty.spawn(shell)
             print("[LOG][_start_windows] PTY spawn 완료")
         except ImportError as ie:
             print(f"[WARN][_start_windows] pywinpty ImportError: {ie} → subprocess fallback 사용")
             import subprocess
-            shell = os.environ.get("COMSPEC", "cmd.exe")
+            shell = self._resolve_startup_shell(os.environ.get("COMSPEC", "cmd.exe"))
             print(f"[LOG][_start_windows] subprocess 쉘: {shell}")
+            argv = self._split_command(shell)
             self._pty = subprocess.Popen(
-                [shell],
+                argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -296,19 +328,20 @@ class TerminalView(QWidget):
                 print(f"[LOG][_start_unix] ptyprocess 버전={_v('ptyprocess')}")
             except Exception:
                 print("[LOG][_start_unix] ptyprocess 버전 확인 불가")
-            shell = os.environ.get("SHELL", "/bin/bash")
+            shell = self._resolve_startup_shell(os.environ.get("SHELL", "/bin/bash"))
             print(f"[LOG][_start_unix] 쉘 경로: {shell}")
-            self._pty = ptyprocess.PtyProcess.spawn([shell])
+            self._pty = ptyprocess.PtyProcess.spawn(self._split_command(shell))
             print(f"[LOG][_start_unix] PTY spawn 완료 — PID={self._pty.pid}, "
                   f"fd={self._pty.fd}, closed={self._pty.closed}")
         except ImportError as ie:
             print(f"[WARN][_start_unix] ptyprocess ImportError: {ie} → subprocess fallback")
             print("[WARN][_start_unix] 'pip install ptyprocess' 설치를 권장합니다")
             import subprocess
-            shell = os.environ.get("SHELL", "/bin/sh")
+            shell = self._resolve_startup_shell(os.environ.get("SHELL", "/bin/sh"))
             print(f"[LOG][_start_unix] subprocess 쉘: {shell}")
+            argv = self._split_command(shell)
             self._pty = subprocess.Popen(
-                [shell],
+                argv,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -433,83 +466,145 @@ class TerminalView(QWidget):
         if self._screen and self._screen.title:
             print(f"[LOG][_feed] 타이틀 변경 감지: {self._screen.title!r}")
             self.title_changed.emit(self._screen.title)
+        # 오프스크린 버퍼 갱신 표시 — 타이머가 다음 틱에 update() 호출
+        self._dirty = True
 
     # ------------------------------------------------------------------
     # 렌더링 (CVirtualConsole::Paint() 대응)
     # ------------------------------------------------------------------
 
+    def _on_repaint_timer(self):
+        """타이머 콜백 — PTY 데이터가 도착한 경우에만 화면 갱신 요청"""
+        if self._dirty:
+            self._dirty = False
+            self._pixmap_dirty = True
+            self.update()
+
     def paintEvent(self, event: QPaintEvent):
         self._paint_count += 1
-        painter = QPainter(self)
-        painter.setFont(self._font)
 
-        # 설정에서 기본 색상 가져오기
+        # 크기 변경이나 dirty 상태일 때만 오프스크린 버퍼 재렌더링
+        if self._pixmap_dirty or self._pixmap is None \
+                or self._pixmap.size() != self.size():
+            self._rebuild_pixmap()
+            self._pixmap_dirty = False
+
+        painter = QPainter(self)
+
+        # 캐시된 픽스맵 블릿 (전체 화면 복사 — 단일 draw 연산)
+        if self._pixmap is not None:
+            painter.drawPixmap(0, 0, self._pixmap)
+        else:
+            painter.fillRect(self.rect(), QColor(DEFAULT_BG))
+
+        # 선택 영역 오버레이 (가볍게 on-top으로 그림)
+        self._paint_selection_overlay(painter)
+
+        # 커서 오버레이 (항상 최신 위치)
+        self._paint_cursor(painter)
+
+    def _rebuild_pixmap(self):
+        """터미널 화면 전체를 오프스크린 QPixmap에 렌더링한다.
+        PTY 데이터가 도착한 경우에만 호출되므로 비용이 높아도 무방하다."""
+        if self._pixmap is None or self._pixmap.size() != self.size():
+            self._pixmap = QPixmap(self.size())
+
         s = self._settings
         cfg_fg = s.default_fg if s else DEFAULT_FG
         cfg_bg = s.default_bg if s else DEFAULT_BG
 
-        # 전체 배경 채우기
-        painter.fillRect(self.rect(), QColor(cfg_bg))
+        painter = QPainter(self._pixmap)
+        painter.setFont(self._font)
+        painter.fillRect(self._pixmap.rect(), QColor(cfg_bg))
 
         if self._screen is None:
             painter.setPen(QColor(cfg_fg))
             painter.drawText(10, 20, "pyte 라이브러리가 필요합니다: pip install pyte")
+            painter.end()
             if self._paint_count <= 3:
-                print(f"[LOG][paintEvent] #{self._paint_count}: _screen=None, 안내 문구 표시")
+                print(f"[LOG][_rebuild_pixmap] #{self._paint_count}: _screen=None, 안내 문구 표시")
             return
 
         fm = QFontMetrics(self._font)
         rendered_chars = 0
-        widget_w = self.width()
-        widget_h = self.height()
-
-        if self._paint_count <= 3:
-            print(f"[LOG][paintEvent] #{self._paint_count}: "
-                  f"위젯크기={widget_w}×{widget_h}px, "
-                  f"셀크기={self._cell_w}×{self._cell_h}px, "
-                  f"화면버퍼={self._screen.columns}×{self._screen.lines}, "
-                  f"_running={self._running}")
 
         for row_idx in range(self._screen.lines):
-            for col_idx in range(self._screen.columns):
-                char = self._screen.buffer[row_idx][col_idx]
+            row_buf = self._screen.buffer[row_idx]
+            y = row_idx * self._cell_h
+            baseline = y + fm.ascent()
 
+            col = 0
+            while col < self._screen.columns:
+                char = row_buf[col]
                 fg = _resolve_color(char.fg, cfg_fg)
                 bg = _resolve_color(char.bg, cfg_bg)
 
-                x = col_idx * self._cell_w
-                y = row_idx * self._cell_h
+                # 같은 fg/bg 속성이 연속되는 구간을 하나의 run으로 묶음
+                run_end = col + 1
+                while run_end < self._screen.columns:
+                    nc = row_buf[run_end]
+                    if nc.fg != char.fg or nc.bg != char.bg:
+                        break
+                    run_end += 1
 
-                # 배경 그리기
+                x_start = col * self._cell_w
+                run_w = (run_end - col) * self._cell_w
+
+                # 배경 (기본 배경이 아닌 경우에만)
                 if char.bg != "default":
-                    painter.fillRect(x, y, self._cell_w, self._cell_h, bg)
+                    painter.fillRect(x_start, y, run_w, self._cell_h, bg)
 
-                # 텍스트 그리기
-                ch = char.data
-                if ch and ch != " ":
-                    painter.setPen(fg)
-                    painter.drawText(x, y + fm.ascent(), ch)
-                    rendered_chars += 1
+                # 텍스트 (run 내 각 문자 개별 렌더링)
+                painter.setPen(fg)
+                for c in range(col, run_end):
+                    ch = row_buf[c].data
+                    if ch and ch != " ":
+                        painter.drawText(c * self._cell_w, baseline, ch)
+                        rendered_chars += 1
+
+                col = run_end
+
+        painter.end()
 
         if self._paint_count <= 3 or (rendered_chars > 0 and self._paint_count % 60 == 0):
-            print(f"[LOG][paintEvent] #{self._paint_count}: 렌더된 문자={rendered_chars}개")
+            print(f"[LOG][_rebuild_pixmap] #{self._paint_count}: 렌더된 문자={rendered_chars}개")
 
-        # 커서 그리기
-        if self._screen.cursor:
-            cx = self._screen.cursor.x * self._cell_w
-            cy = self._screen.cursor.y * self._cell_h
-            cursor_style = s.cursor_style if s else "block"
-            if cursor_style == "block":
-                painter.fillRect(cx, cy, self._cell_w, self._cell_h, QColor("#ffffff"))
-                char = self._screen.buffer[self._screen.cursor.y][self._screen.cursor.x]
-                if char.data and char.data != " ":
-                    painter.setPen(QColor(cfg_bg))
-                    painter.drawText(cx, cy + fm.ascent(), char.data)
-            elif cursor_style == "underline":
-                painter.fillRect(cx, cy + self._cell_h - 2, self._cell_w, 2,
-                                 QColor("#ffffff"))
-            else:  # bar
-                painter.fillRect(cx, cy, 2, self._cell_h, QColor("#ffffff"))
+    def _paint_selection_overlay(self, painter: QPainter):
+        """선택 영역을 반투명 파란색으로 덧그린다."""
+        sel = self._selection_range()
+        if sel is None:
+            return
+        (sc, sr), (ec, er) = sel
+        sel_color = QColor(100, 150, 255, 120)
+        cols = self._screen.columns if self._screen else self._cols
+        for row in range(sr, er + 1):
+            col_start = sc if row == sr else 0
+            col_end = ec if row == er else cols - 1
+            x = col_start * self._cell_w
+            y = row * self._cell_h
+            w = (col_end - col_start + 1) * self._cell_w
+            painter.fillRect(x, y, w, self._cell_h, sel_color)
+
+    def _paint_cursor(self, painter: QPainter):
+        """커서를 픽스맵 위에 덧그린다."""
+        if self._screen is None or not self._screen.cursor:
+            return
+        s = self._settings
+        cfg_bg = s.default_bg if s else DEFAULT_BG
+        cursor_style = s.cursor_style if s else "block"
+        cx = self._screen.cursor.x * self._cell_w
+        cy = self._screen.cursor.y * self._cell_h
+        fm = QFontMetrics(self._font)
+        if cursor_style == "block":
+            painter.fillRect(cx, cy, self._cell_w, self._cell_h, QColor("#ffffff"))
+            char = self._screen.buffer[self._screen.cursor.y][self._screen.cursor.x]
+            if char.data and char.data != " ":
+                painter.setPen(QColor(cfg_bg))
+                painter.drawText(cx, cy + fm.ascent(), char.data)
+        elif cursor_style == "underline":
+            painter.fillRect(cx, cy + self._cell_h - 2, self._cell_w, 2, QColor("#ffffff"))
+        else:  # bar
+            painter.fillRect(cx, cy, 2, self._cell_h, QColor("#ffffff"))
 
     # ------------------------------------------------------------------
     # 키보드 입력 처리 (CRealConsole::ProcessKeyDown() 대응)
@@ -519,7 +614,7 @@ class TerminalView(QWidget):
         key = event.key()
         text = event.text()
         mods = event.modifiers()
-        # PyQt6에서 Qt enum은 int() 직접 변환 불가 → .value 사용 (PyQt5 호환)
+        # PySide6에서 Qt enum은 int() 직접 변환 불가 → .value 사용 (PyQt5 호환)
         key_int = key.value if hasattr(key, 'value') else int(key)
         mods_int = mods.value if hasattr(mods, 'value') else int(mods)
         print(f"[LOG][keyPressEvent] key={key}({hex(key_int)}), text={text!r}, "
@@ -554,7 +649,11 @@ class TerminalView(QWidget):
 
         # Ctrl+C (클립보드 복사와 구분하여 처리)
         if mods & Qt.KeyboardModifier.ControlModifier:
-            if key == Qt.Key.Key_C and not self._has_selection():
+            if key == Qt.Key.Key_C:
+                if self._has_selection():
+                    print("[LOG][keyPressEvent] Ctrl+C → 선택 영역 복사")
+                    self._copy_selection()
+                    return
                 print("[LOG][keyPressEvent] Ctrl+C → ETX(\\x03) 전송")
                 self._write(b"\x03")
                 return
@@ -583,9 +682,46 @@ class TerminalView(QWidget):
             print(f"[LOG][keyPressEvent] 매핑 없는 키 무시 (key={key})")
 
     def _has_selection(self) -> bool:
-        # TODO: 2단계 이후 선택 영역 구현
-        print("[LOG][_has_selection] 호출 → False (미구현)")
-        return False
+        return self._selection_range() is not None
+
+    def _selection_range(self) -> "tuple[tuple[int,int], tuple[int,int]] | None":
+        """정규화된 선택 범위 (start, end) 반환. 선택 없으면 None."""
+        if self._sel_anchor is None or self._sel_end_cell is None:
+            return None
+        a = self._sel_anchor
+        e = self._sel_end_cell
+        if a == e:
+            return None
+        # (row, col) 기준으로 정렬
+        if (a[1], a[0]) <= (e[1], e[0]):
+            return a, e
+        return e, a
+
+    def _cell_at(self, pos) -> "tuple[int, int]":
+        """픽셀 좌표 → (col, row) 터미널 셀 인덱스"""
+        col = max(0, min(int(pos.x()) // max(1, self._cell_w),
+                         (self._screen.columns - 1) if self._screen else self._cols - 1))
+        row = max(0, min(int(pos.y()) // max(1, self._cell_h),
+                         (self._screen.lines - 1) if self._screen else self._rows - 1))
+        return col, row
+
+    def _copy_selection(self):
+        """선택된 텍스트를 클립보드에 복사한다."""
+        sel = self._selection_range()
+        if sel is None or self._screen is None:
+            print("[LOG][_copy_selection] 선택 영역 없음 — 복사 생략")
+            return
+        (sc, sr), (ec, er) = sel
+        lines = []
+        for row in range(sr, er + 1):
+            row_buf = self._screen.buffer[row]
+            col_start = sc if row == sr else 0
+            col_end = ec if row == er else self._screen.columns - 1
+            text = "".join(row_buf[c].data or " " for c in range(col_start, col_end + 1))
+            lines.append(text.rstrip())
+        clipboard_text = "\n".join(lines)
+        QApplication.clipboard().setText(clipboard_text)
+        print(f"[LOG][_copy_selection] 복사 완료 — {len(clipboard_text)}문자")
 
     def _write(self, data: bytes):
         """PTY에 데이터 쓰기"""
@@ -673,15 +809,68 @@ class TerminalView(QWidget):
     # ------------------------------------------------------------------
 
     def sizeHint(self):
-        from PyQt6.QtCore import QSize
+        from PySide6.QtCore import QSize
         hint = QSize(self._cols * self._cell_w, self._rows * self._cell_h)
         print(f"[LOG][sizeHint] → {hint.width()}×{hint.height()}px "
               f"({self._cols}열×{self._rows}행, 셀={self._cell_w}×{self._cell_h}px)")
         return hint
 
     def mousePressEvent(self, event: QMouseEvent):
-        btn = event.button()
-        pos = event.position()
-        print(f"[LOG][mousePressEvent] 클릭: button={btn}, pos=({pos.x():.0f},{pos.y():.0f})")
         self.setFocus()
-        print("[LOG][mousePressEvent] setFocus() 완료")
+        if event.button() == Qt.MouseButton.LeftButton:
+            cell = self._cell_at(event.position())
+            print(f"[LOG][mousePressEvent] 선택 시작: cell={cell}")
+            self._sel_anchor = cell
+            self._sel_end_cell = cell
+            self._selecting = True
+            self.update()
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Windows CMD 동작: 선택 영역이 있으면 복사, 없으면 붙여넣기
+            if self._has_selection():
+                print("[LOG][mousePressEvent] 우클릭 → 선택 영역 복사 (CMD 스타일)")
+                self._copy_selection()
+                # 복사 후 선택 해제
+                self._sel_anchor = None
+                self._sel_end_cell = None
+                self.update()
+            else:
+                print("[LOG][mousePressEvent] 우클릭 → 클립보드 붙여넣기 (CMD 스타일)")
+                self._paste_clipboard()
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._selecting:
+            cell = self._cell_at(event.position())
+            if cell != self._sel_end_cell:
+                self._sel_end_cell = cell
+                self.update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton and self._selecting:
+            self._sel_end_cell = self._cell_at(event.position())
+            self._selecting = False
+            print(f"[LOG][mouseReleaseEvent] 선택 완료: "
+                  f"{self._sel_anchor} → {self._sel_end_cell}")
+            self.update()
+
+    def contextMenuEvent(self, event):
+        """우클릭 컨텍스트 메뉴를 사용하지 않음 — CMD 스타일 우클릭으로 대체"""
+        pass  # mousePressEvent의 RightButton 처리가 담당
+
+    def _paste_clipboard(self):
+        """클립보드 텍스트를 PTY에 전송 (붙여넣기)"""
+        text = QApplication.clipboard().text()
+        if not text:
+            print("[LOG][_paste_clipboard] 클립보드가 비어 있음 — 건너뜀")
+            return
+        print(f"[LOG][_paste_clipboard] 붙여넣기 — {len(text)}문자")
+        self._write(text.encode("utf-8", errors="replace"))
+
+    def _select_all(self):
+        """전체 화면 텍스트 선택"""
+        if self._screen is None:
+            return
+        self._sel_anchor = (0, 0)
+        self._sel_end_cell = (self._screen.columns - 1, self._screen.lines - 1)
+        self._selecting = False
+        print("[LOG][_select_all] 전체 선택 완료")
+        self.update()
