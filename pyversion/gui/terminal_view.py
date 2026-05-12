@@ -14,12 +14,12 @@ import traceback
 
 print(f"[LOG][module] terminal_view 로딩 시작 — Python {sys.version}, 플랫폼={sys.platform}")
 
-from PySide6.QtWidgets import QWidget, QApplication, QMenu
+from PySide6.QtWidgets import QWidget, QApplication
 from PySide6.QtCore import Qt, QTimer, Signal, QRect
 from PySide6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QKeyEvent,
     QMouseEvent, QPaintEvent, QResizeEvent, QClipboard,
-    QPixmap, QContextMenuEvent,
+    QPixmap,
 )
 
 print("[LOG][module] PySide6 임포트 성공")
@@ -805,10 +805,18 @@ class TerminalView(QWidget):
             self._sel_end_cell = cell
             self._selecting = True
             self.update()
-        else:
-            btn = event.button()
-            pos = event.position()
-            print(f"[LOG][mousePressEvent] 클릭: button={btn}, pos=({pos.x():.0f},{pos.y():.0f})")
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Windows CMD 동작: 선택 영역이 있으면 복사, 없으면 붙여넣기
+            if self._has_selection():
+                print("[LOG][mousePressEvent] 우클릭 → 선택 영역 복사 (CMD 스타일)")
+                self._copy_selection()
+                # 복사 후 선택 해제
+                self._sel_anchor = None
+                self._sel_end_cell = None
+                self.update()
+            else:
+                print("[LOG][mousePressEvent] 우클릭 → 클립보드 붙여넣기 (CMD 스타일)")
+                self._paste_clipboard()
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self._selecting:
@@ -825,15 +833,18 @@ class TerminalView(QWidget):
                   f"{self._sel_anchor} → {self._sel_end_cell}")
             self.update()
 
-    def contextMenuEvent(self, event: QContextMenuEvent):
-        """우클릭 컨텍스트 메뉴 (복사)"""
-        menu = QMenu(self)
-        copy_action = menu.addAction("복사(&C)")
-        copy_action.setEnabled(self._has_selection())
-        copy_action.triggered.connect(self._copy_selection)
-        select_all_action = menu.addAction("모두 선택(&A)")
-        select_all_action.triggered.connect(self._select_all)
-        menu.exec(event.globalPos())
+    def contextMenuEvent(self, event):
+        """우클릭 컨텍스트 메뉴를 사용하지 않음 — CMD 스타일 우클릭으로 대체"""
+        pass  # mousePressEvent의 RightButton 처리가 담당
+
+    def _paste_clipboard(self):
+        """클립보드 텍스트를 PTY에 전송 (붙여넣기)"""
+        text = QApplication.clipboard().text()
+        if not text:
+            print("[LOG][_paste_clipboard] 클립보드가 비어 있음 — 건너뜀")
+            return
+        print(f"[LOG][_paste_clipboard] 붙여넣기 — {len(text)}문자")
+        self._write(text.encode("utf-8", errors="replace"))
 
     def _select_all(self):
         """전체 화면 텍스트 선택"""
