@@ -711,6 +711,7 @@ class TerminalView(QWidget):
             return
 
         # 특수 키 변환 테이블 (VK_* → VT 시퀀스)
+        # 참고: Tab은 Shift 조합에 따라 런타임 분기해야 하므로 아래 별도 처리한다.
         VT_MAP = {
             Qt.Key.Key_Return:    b"\r",
             Qt.Key.Key_Enter:     b"\r",
@@ -757,7 +758,7 @@ class TerminalView(QWidget):
 
         # Tab → \t (완성 요청); Shift+Tab → \x1b[Z (역방향 완성, backtab VT sequence)
         if key == Qt.Key.Key_Tab:
-            data = b"\x1b[Z" if (mods & Qt.KeyboardModifier.ShiftModifier) else b"\t"
+            data = b"\x1b[Z" if ((mods & Qt.KeyboardModifier.ShiftModifier) != 0) else b"\t"
         else:
             data = VT_MAP.get(key)
         if data:
