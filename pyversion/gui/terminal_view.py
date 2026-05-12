@@ -512,6 +512,26 @@ class TerminalView(QWidget):
         self._pixmap_dirty = True
         self.update()
 
+    def _visible_row_buffer(self, display_row: int, history_list=None):
+        """현재 뷰포트에서 보이는 display_row의 row buffer를 반환."""
+        if self._screen is None:
+            return None
+        if display_row < 0 or display_row >= self._screen.lines:
+            return None
+        if self._scroll_offset <= 0 or not hasattr(self._screen, 'history'):
+            return self._screen.buffer[display_row]
+        if history_list is None:
+            history_list = list(self._screen.history.top)
+        total_hist = len(history_list)
+        viewport_start = max(0, total_hist - self._scroll_offset)
+        virtual_idx = viewport_start + display_row
+        if virtual_idx < total_hist:
+            return history_list[virtual_idx]
+        live_row = virtual_idx - total_hist
+        if 0 <= live_row < self._screen.lines:
+            return self._screen.buffer[live_row]
+        return None
+
     # ------------------------------------------------------------------
     # 렌더링 (CVirtualConsole::Paint() 대응)
     # ------------------------------------------------------------------
@@ -572,28 +592,14 @@ class TerminalView(QWidget):
         fm = QFontMetrics(self._font)
         rendered_chars = 0
 
-        # 스크롤백: 히스토리 행 목록 (가장 오래된 것이 index 0)
-        history_list: list = []
+        history_list = None
         if self._scroll_offset > 0 and hasattr(self._screen, 'history'):
             history_list = list(self._screen.history.top)
-        total_hist = len(history_list)
-        # 뷰포트가 시작하는 가상(virtual) 행 인덱스
-        # virtual 0..total_hist-1 → history, virtual total_hist.. → live screen
-        viewport_start = max(0, total_hist - self._scroll_offset)
 
         for display_row in range(self._screen.lines):
-            if self._scroll_offset > 0:
-                virtual_idx = viewport_start + display_row
-                if virtual_idx < total_hist:
-                    row_buf = history_list[virtual_idx]
-                else:
-                    live_row = virtual_idx - total_hist
-                    if 0 <= live_row < self._screen.lines:
-                        row_buf = self._screen.buffer[live_row]
-                    else:
-                        continue
-            else:
-                row_buf = self._screen.buffer[display_row]
+            row_buf = self._visible_row_buffer(display_row, history_list=history_list)
+            if row_buf is None:
+                continue
 
             y = display_row * self._cell_h
             baseline = y + fm.ascent()
@@ -636,8 +642,6 @@ class TerminalView(QWidget):
 
     def _paint_selection_overlay(self, painter: QPainter):
         """선택 영역을 반투명 파란색으로 덧그린다."""
-        if self._scroll_offset > 0:
-            return  # 히스토리 보기 중에는 선택 오버레이 숨김
         sel = self._selection_range()
         if sel is None:
             return
@@ -788,9 +792,15 @@ class TerminalView(QWidget):
             print("[LOG][_copy_selection] 선택 영역 없음 — 복사 생략")
             return
         (sc, sr), (ec, er) = sel
+        history_list = None
+        if self._scroll_offset > 0 and hasattr(self._screen, 'history'):
+            history_list = list(self._screen.history.top)
         lines = []
         for row in range(sr, er + 1):
-            row_buf = self._screen.buffer[row]
+            row_buf = self._visible_row_buffer(row, history_list=history_list)
+            if row_buf is None:
+                lines.append("")
+                continue
             col_start = sc if row == sr else 0
             col_end = ec if row == er else self._screen.columns - 1
             text = "".join(row_buf[c].data or " " for c in range(col_start, col_end + 1))
