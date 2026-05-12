@@ -6,6 +6,7 @@ CConEmuMain 클래스 대응 (1단계 프로토타입)
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Callable
 
 print(f"[LOG][app.py] 모듈 로딩 시작 — Python {sys.version}")
@@ -15,10 +16,11 @@ from PySide6.QtWidgets import (
     QMdiArea,
     QMdiSubWindow,
     QStatusBar,
+    QToolBar,
     QMessageBox,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QKeySequence, QShortcut, QIcon
 
 from gui.terminal_view import TerminalView
 from gui.settings_dialog import SettingsDialog, register_settings_changed
@@ -36,6 +38,7 @@ class _TerminalSubWindow(QMdiSubWindow):
         self._view = view
         self._on_close = on_close
         self.setWidget(view)
+        self.setWindowIcon(QIcon())
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
     def closeEvent(self, event):
@@ -64,6 +67,7 @@ class ConEmuApp(QMainWindow):
 
         self._init_ui()
         self._init_menu()
+        self._init_toolbar()
         self._init_shortcuts()
         self._apply_settings()
 
@@ -93,53 +97,108 @@ class ConEmuApp(QMainWindow):
         print("[LOG][_init_menu] 호출")
         menubar = self.menuBar()
 
+        self._new_action = QAction("새 콘솔 창(&N)", self)
+        self._new_action.setIcon(self._icon_for("new"))
+        self._new_action.triggered.connect(self.new_tab)
+
+        self._close_action = QAction("현재 창 닫기(&W)", self)
+        self._close_action.setIcon(self._icon_for("close"))
+        self._close_action.triggered.connect(self._close_current_tab)
+
+        self._close_all_action = QAction("모든 창 닫기(&L)", self)
+        self._close_all_action.triggered.connect(self._close_all_windows)
+
+        self._quit_action = QAction("종료(&Q)", self)
+        self._quit_action.triggered.connect(self.close)
+
+        self._settings_action = QAction("설정(&S)…", self)
+        self._settings_action.setIcon(self._icon_for("settings"))
+        self._settings_action.triggered.connect(self.open_settings)
+
+        self._cascade_action = QAction("계단식 배열(&C)", self)
+        self._cascade_action.setIcon(self._icon_for("cascade"))
+        self._cascade_action.triggered.connect(self._cascade_windows)
+
+        self._tile_action = QAction("바둑판 배열(&T)", self)
+        self._tile_action.setIcon(self._icon_for("tile"))
+        self._tile_action.triggered.connect(self._tile_windows)
+
+        self._vertical_action = QAction("수직 배열(&V)", self)
+        self._vertical_action.triggered.connect(self._tile_vertical)
+
+        self._horizontal_action = QAction("수평 배열(&H)", self)
+        self._horizontal_action.triggered.connect(self._tile_horizontal)
+
+        self._about_action = QAction("정보(&A)", self)
+        self._about_action.triggered.connect(self._show_about)
+
+        # 메뉴 순서: 파일, 편집, 창, 도움말
         file_menu = menubar.addMenu("파일(&F)")
-        new_action = QAction("새 콘솔 창(&N)", self)
-        new_action.triggered.connect(self.new_tab)
-        file_menu.addAction(new_action)
-
-        close_action = QAction("현재 창 닫기(&W)", self)
-        close_action.triggered.connect(self._close_current_tab)
-        file_menu.addAction(close_action)
-
-        close_all_action = QAction("모든 창 닫기(&L)", self)
-        close_all_action.triggered.connect(self._close_all_windows)
-        file_menu.addAction(close_all_action)
+        file_menu.addAction(self._new_action)
+        file_menu.addAction(self._close_action)
+        file_menu.addAction(self._close_all_action)
 
         file_menu.addSeparator()
-
-        quit_action = QAction("종료(&Q)", self)
-        quit_action.triggered.connect(self.close)
-        file_menu.addAction(quit_action)
-
-        window_menu = menubar.addMenu("창(&W)")
-        cascade_action = QAction("계단식 배열(&C)", self)
-        cascade_action.triggered.connect(self._cascade_windows)
-        window_menu.addAction(cascade_action)
-
-        tile_action = QAction("바둑판 배열(&T)", self)
-        tile_action.triggered.connect(self._tile_windows)
-        window_menu.addAction(tile_action)
-
-        vertical_action = QAction("수직 배열(&V)", self)
-        vertical_action.triggered.connect(self._tile_vertical)
-        window_menu.addAction(vertical_action)
-
-        horizontal_action = QAction("수평 배열(&H)", self)
-        horizontal_action.triggered.connect(self._tile_horizontal)
-        window_menu.addAction(horizontal_action)
-
-        help_menu = menubar.addMenu("도움말(&H)")
-        about_action = QAction("정보(&A)", self)
-        about_action.triggered.connect(self._show_about)
-        help_menu.addAction(about_action)
+        file_menu.addAction(self._quit_action)
 
         edit_menu = menubar.addMenu("편집(&E)")
-        settings_action = QAction("설정(&S)…", self)
-        settings_action.triggered.connect(self.open_settings)
-        edit_menu.addAction(settings_action)
+        edit_menu.addAction(self._settings_action)
+
+        window_menu = menubar.addMenu("창(&W)")
+        window_menu.addAction(self._cascade_action)
+        window_menu.addAction(self._tile_action)
+        window_menu.addAction(self._vertical_action)
+        window_menu.addAction(self._horizontal_action)
+
+        help_menu = menubar.addMenu("도움말(&H)")
+        help_menu.addAction(self._about_action)
 
         print("[LOG][_init_menu] 완료")
+
+    def _icon_for(self, key: str) -> QIcon:
+        root_dir = Path(__file__).resolve().parent.parent
+        icon_candidates: dict[str, list[str]] = {
+            "new": [
+                "src/ConEmu/Far.ico",
+                "logo/logo-32.png",
+            ],
+            "close": [
+                "src/ConEmu/ConEmu15.ico",
+                "logo/logo-24.png",
+            ],
+            "settings": [
+                "src/ConEmu/ConEmu.ico",
+                "logo/logo-16.png",
+            ],
+            "cascade": [
+                "src/ConEmu/Search.ico",
+                "logo/logo-20.png",
+            ],
+            "tile": [
+                "logo/logo-40.png",
+                "logo/logo-32.png",
+            ],
+        }
+        for relative_path in icon_candidates.get(key, []):
+            image_path = root_dir / relative_path
+            if image_path.exists():
+                return QIcon(str(image_path))
+        return QIcon()
+
+    def _init_toolbar(self):
+        print("[LOG][_init_toolbar] 호출")
+        toolbar = QToolBar("주요 기능", self)
+        toolbar.setObjectName("mainToolbar")
+        toolbar.setMovable(False)
+        toolbar.addAction(self._new_action)
+        toolbar.addAction(self._close_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self._cascade_action)
+        toolbar.addAction(self._tile_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self._settings_action)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        print("[LOG][_init_toolbar] 완료")
 
     def _init_shortcuts(self):
         """단축키 등록 (CConEmuCtrl / GlobalHotkeys 대응)"""
