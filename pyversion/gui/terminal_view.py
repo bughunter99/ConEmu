@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QWidget, QApplication, QScrollBar
 from PySide6.QtCore import Qt, QTimer, Signal, QRect
 from PySide6.QtGui import (
     QPainter, QColor, QFont, QFontMetrics, QKeyEvent,
-    QMouseEvent, QPaintEvent, QResizeEvent, QClipboard,
+    QMouseEvent, QPaintEvent, QResizeEvent, QClipboard, QWheelEvent,
     QPixmap,
 )
 
@@ -512,7 +512,7 @@ class TerminalView(QWidget):
         self._pixmap_dirty = True
         self.update()
 
-    def _visible_row_buffer(self, display_row: int, history_list: list | None = None):
+    def _visible_row_buffer(self, display_row: int, history_list: list | None = None) -> dict | None:
         """현재 display_row에 보이는 row buffer를 반환한다.
 
         스크롤백이 켜지면 가상 타임라인을
@@ -924,7 +924,7 @@ class TerminalView(QWidget):
               f"스크롤바={_SCROLLBAR_WIDTH}px)")
         return hint
 
-    def wheelEvent(self, event):
+    def wheelEvent(self, event: QWheelEvent):
         """마우스 휠로 스크롤백 히스토리 스크롤."""
         if self._screen is None or not hasattr(self._screen, 'history'):
             event.ignore()
@@ -942,6 +942,7 @@ class TerminalView(QWidget):
         event.accept()
 
     def focusNextPrevChild(self, next_child: bool) -> bool:
+        """Tab/Shift+Tab을 포커스 이동에 쓰지 않고 PTY로 전달하도록 막는다."""
         # Tab/Shift+Tab must be forwarded to the PTY shell (for tab completion),
         # not consumed by Qt for focus navigation between widgets.
         # False를 반환하면 Qt 기본 포커스 이동이 Tab을 소비하지 않아
